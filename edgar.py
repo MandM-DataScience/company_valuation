@@ -429,10 +429,9 @@ def get_yearly_values(doc, measure, instant=False, last_annual_report_date=None,
 
     if df is not None:
 
-        print(df.to_markdown())
-
         # income statement
         if not instant:
+
             df = df[~df.frame.str.contains("Q")]
             return {"dates": list((df.frame.str.replace("CY", "")).astype(int)),
                     "values": list(df.val),
@@ -445,6 +444,10 @@ def get_yearly_values(doc, measure, instant=False, last_annual_report_date=None,
                 return
 
             last_annual_report_row = df[df.end == last_annual_report_date]
+
+            if last_annual_report_row.empty:
+                return
+
             quarter_of_annual_report = last_annual_report_row.iloc[0]["frame"][7]
 
             df = df[df.frame.str.contains(f"Q{quarter_of_annual_report}I")]
@@ -527,13 +530,73 @@ def get_values_from_measures(doc, measures, get_ttm=True, get_most_recent=True, 
     return most_recent, ttm, yearly
 
 
-def extract_company_financial_information(cik):
+def merge_subsets(superset, subsets, must_include=None):
+
+    to_add = {"dates":[],"values":[]}
+
+    # superset = cash+cashrestrictes
+    # subset = cash & restricted
+
+    if must_include is None:
+        for s in subsets:
+            for i, d in enumerate(s["dates"]):
+                if d not in superset["dates"]:
+                    if d not in to_add["dates"]:
+                        to_add["dates"].append(d)
+                        to_add["values"].append(s["values"][i])
+                    else:
+                        idx = to_add["dates"].index(d)
+                        to_add["values"][idx] += s["values"][i]
+
+    else:
+        if not isinstance(must_include, tuple):
+            raise Exception("must_include must be a tuple")
+
+        tmp_dates = subsets[must_include[0]]["dates"]
+        remove_dates = []
+        for d in tmp_dates:
+            for m in must_include:
+                s = subsets[m]
+                if d not in s["dates"]:
+                    remove_dates.append(d)
+
+        must_include_dates = [x for x in tmp_dates if x not in remove_dates and x not in superset["dates"]]
+
+        if len(must_include_dates) == 0:
+            return
+
+        for m in must_include_dates:
+            to_add["dates"].append(m)
+            to_add["values"].append(0)
+
+        for s in subsets:
+            for i, d in enumerate(s["dates"]):
+                if d in to_add["dates"]:
+                    idx = to_add["dates"].index(d)
+                    to_add["values"][idx] += s["values"][i]
+
+    for i, d in enumerate(to_add["dates"]):
+        superset["dates"].append(d)
+        superset["values"].append(to_add["values"][i])
+
+    sort = sorted(zip(superset["dates"], superset["values"]))
+    superset["dates"] = [x for x, _ in sort]
+    superset["values"] = [x for _, x in sort]
+
+
+def extract_company_financial_information(cik, l=[]):
 
     pd.options.mode.chained_assignment = None
     doc = mongodb.get_document("financial_data", cik)
 
+    #### SHARES ####
     shares = get_most_recent_value(doc, "EntityCommonStockSharesOutstanding", unit="shares", tag="dei")
 
+    ######################
+    ## INCOME STATEMENT ##
+    ######################
+
+    #### REVENUE ####
     measures = [
         "Revenues",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
@@ -542,49 +605,483 @@ def extract_company_financial_information(cik):
 
     _, ttm_revenue, yearly_revenue = get_values_from_measures(doc, measures, get_most_recent=False, debug=False)
 
-    last_annual_report_date = yearly_revenue["last_annual_report_date"]
-    print("LAST", last_annual_report_date)
+    #### R and D ####
+    measures = ["ResearchAndDevelopmentExpense"]
+    _, _, yearly_rd = get_values_from_measures(
+        doc, measures, get_ttm=False, get_most_recent=False, debug=False)
 
-    # measures = ["CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"]
-    #
-    # most_recent_cash, _, yearly_cash = get_values_from_measures(
-    #     doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=True)
+    measures = ["ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"]
+    _, _, yearly_rd_not_inprocess = get_values_from_measures(
+        doc, measures, get_ttm=False, get_most_recent=False, debug=False)
+
+    measures = ["ResearchAndDevelopmentInProcess"]
+    _, _, yearly_rd_inprocess = get_values_from_measures(
+        doc, measures, get_ttm=False, get_most_recent=False, debug=False)
+
+    merge_subsets(yearly_rd, [yearly_rd_not_inprocess, yearly_rd_inprocess])
+
+    #### Net Income ####
+    measures = [
+        "NetIncomeLoss",
+        "NetIncomeLossAvailableToCommonStockholdersBasic",
+        "NetIncomeLossAvailableToCommonStockholdersDiluted",
+        "ComprehensiveIncomeNetOfTax",
+        "IncomeLossFromContinuingOperations",
+
+        # including minority interest
+        "ProfitLoss",
+        "IncomeLossFromContinuingOperationsIncludingPortionAttributableToNoncontrollingInterest",
+        "IncomeLossFromSubsidiariesNetOfTax"
+    ]
+
+    _, ttm_net_income, yearly_net_income = get_values_from_measures(doc, measures, get_most_recent=False, debug=False)
+
+    #### Interest Expenses ####
+    measures = [
+    "InterestExpense",
+    "InterestAndDebtExpense",
+    "InterestPaid",
+    "InterestPaidNet",
+    "InterestCostsIncurred"]
+
+    _, ttm_interest_expenses, yearly_interest_expenses = get_values_from_measures(doc, measures, get_most_recent=False, debug=False)
+
+    measures = ["InterestExpenseDebt",
+    "InterestExpenseDebtExcludingAmortization"]
+    _, ttm_ie_debt, yearly_ie_debt = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                  debug=False)
+
+    measures = ["InterestExpenseLongTermDebt"]
+    _, ttm_ie_debt_lt, yearly_ie_debt_lt = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                  debug=False)
+
+    measures = ["InterestExpenseShortTermBorrowings"]
+    _, ttm_ie_debt_st, yearly_ie_debt_st = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                  debug=False)
+    merge_subsets(yearly_ie_debt, [yearly_ie_debt_lt, yearly_ie_debt_st])
+
+    measures = ["InterestExpenseBorrowings"]
+    _, ttm_ie_borrowings, yearly_ie_borrowings = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                    debug=False)
+    measures = ["InterestExpenseDeposits"]
+    _, ttm_ie_deposits, yearly_ie_deposits = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                    debug=False)
+    measures = ["InterestExpenseOther"]
+    _, ttm_ie_others, yearly_ie_others = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                    debug=False)
+    measures = ["InterestExpenseRelatedParty"]
+    _, ttm_ie_related, yearly_ie_related = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                    debug=False)
+
+    merge_subsets(yearly_ie_borrowings, [yearly_ie_debt, yearly_ie_deposits, yearly_ie_others, yearly_ie_related])
+    merge_subsets(yearly_interest_expenses, [yearly_ie_borrowings])
+
+    #### Gross Profit ####
+    measures = ["Gross Profit"]
+    _, ttm_gross_profit, yearly_gross_profit = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                    debug=False)
+
+    #### Depreciation ####
+
+    measures = [
+    "DepreciationDepletionAndAmortization",
+    "DepreciationAmortizationAndAccretionNet"]
+    _, ttm_depreciation_amortization, yearly_depreciation_amortization = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                              debug=False)
+
+    # sum depreciation and amortization
+    measures = ["Depreciation"]
+    _, ttm_depreciation, yearly_depreciation = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+
+    # sum to get amortization
+    measures = ["AmortizationOfFinancingCostsAndDiscounts"]
+    _, ttm_amortization_fincost_disc, yearly_amortization_fincost_disc = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+    # sum to get fin.costs + discounts
+    measures = ["AmortizationOfDebtDiscountPremium"]
+    _, ttm_amortization_disc, yearly_amortization_disc = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+    measures = ["AmortizationOfFinancingCosts"]
+    _, ttm_amortization_fincost, yearly_amortization_fincost = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+
+    merge_subsets(yearly_amortization_fincost_disc, [yearly_amortization_disc, yearly_amortization_fincost])
+
+    measures = ["AmortizationOfDeferredCharges"]
+    _, ttm_amortization_charges, yearly_amortization_charges = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+    measures = ["AmortizationOfDeferredSalesCommissions"]
+    _, ttm_amortization_comm, yearly_amortization_comm = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+    measures = ["AmortizationOfIntangibleAssets"]
+    _, ttm_amortization_intan, yearly_amortization_intan = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                                                  debug=False)
+
+    merge_subsets(yearly_amortization_fincost_disc, [yearly_amortization_charges, yearly_amortization_comm, yearly_amortization_intan])
+    merge_subsets(yearly_depreciation_amortization, [yearly_depreciation, yearly_amortization_fincost_disc])
+
+    #### EBIT ####
+    measures = ["OperatingIncomeLoss",
+                "IncomeLossFromContinuingOperationsBeforeInterestExpenseInterestIncomeIncomeTaxesExtraordinaryItemsNoncontrollingInterestsNet",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign",
+                "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
+                ]
+    _, ttm_ebit, yearly_ebit = get_values_from_measures(doc, measures, get_most_recent=False,
+                                                                        debug=False)
+
+    ######################
+    ## BALANCE SHEET    ##
+    ######################
+
+    last_annual_report_date = yearly_revenue["last_annual_report_date"]
+    # print("LAST", last_annual_report_date)
+
+    #### ASSETS ####
+    measures = ["Assets"]
+    most_recent_assets, _, yearly_assets = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### Current Assets ####
+    measures = ["AssetsCurrent"]
+    most_recent_current_assets, _, yearly_current_assets = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### CASH ####
+    measures = ["CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"]
+    most_recent_cash_and_restricted, _, yearly_cash_and_restricted = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["CashAndCashEquivalentsAtCarryingValue", "Cash"]
+    most_recent_cash, _, yearly_cash = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
-    most_recent_cash, _, yearly_cash = get_values_from_measures(doc, measures, get_ttm=False, debug=True)
-
-    # measures = [
-    #     "RestrictedCashAndCashEquivalentsAtCarryingValue",
-    #     "RestrictedCashAndCashEquivalents",
-    #     "RestrictedCash",
-    #     "RestrictedCashAndInvestmentsCurrent",
-    #     "RestrictedCashCurrent"
-    # ]
-    #
-    # most_recent_cash, _, yearly_cash = get_values_from_measures(doc, measures, get_ttm=False, debug=True)
-
-
-
-
-def matrix_fin_values():
-
-    docs = mongodb.get_collection_documents("financial_data")
     measures = [
-
-        # se c'è questo usiamo questo
-        "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
-
-        # cash
-        "CashAndCashEquivalentsAtCarryingValue",
-        "Cash",
-
-        # restricted cash
         "RestrictedCashAndCashEquivalentsAtCarryingValue",
         "RestrictedCashAndCashEquivalents",
         "RestrictedCash",
         "RestrictedCashAndInvestmentsCurrent",
         "RestrictedCashCurrent"
+    ]
+    most_recent_restrictedcash, _, yearly_restrictedcash = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    merge_subsets(yearly_cash_and_restricted, [yearly_cash, yearly_restrictedcash], must_include=(0, ))
+
+    #### Inventory ####
+    measures = [
+        "InventoryNet",
+        "InventoryGross",
+        "FIFOInventoryAmount",
+        "InventoryLIFOReserve",
+        "LIFOInventoryAmount",
+    ]
+    most_recent_inventory, _, yearly_inventory = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### Other current assets ####
+    measures = [
+        "OtherAssetsCurrent",
+        "OtherAssetsMiscellaneousCurrent",
+        "PrepaidExpenseAndOtherAssetsCurrent",
+        "OtherAssetsFairValueDisclosure",
+        "OtherAssetsMiscellaneous",
+        "PrepaidExpenseAndOtherAssets"
+    ]
+    most_recent_other_current_assets, _, yearly_other_current_assets = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["PrepaidExpenseCurrent"]
+    most_recent_prepaid_exp, _, yearly_prepaid_exp = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+    measures = ["PrepaidInsurance"]
+    most_recent_prepaid_ins, _, yearly_prepaid_ins = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+    measures = ["PrepaidTaxes",
+                "IncomeTaxesReceivable",
+                "IncomeTaxReceivable"]
+    most_recent_prepaid_tax, _, yearly_prepaid_tax = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+    merge_subsets(yearly_other_current_assets, [yearly_prepaid_exp, yearly_prepaid_ins, yearly_prepaid_tax])
+
+    #### Receivables ####
+    measures = [
+        # full receivables
+        "AccountsAndOtherReceivablesNetCurrent",
+        "AccountsNotesAndLoansReceivableNetCurrent",
+        "ReceivablesNetCurrent",
+        "NontradeReceivablesCurrent"]
+    most_recent_receivables, _, yearly_receivables = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    # account receivables
+    measures = ["AccountsReceivableNetCurrent",
+        "AccountsReceivableNet",
+        "AccountsReceivableGrossCurrent",
+        "AccountsReceivableGross"]
+    most_recent_ar, _, yearly_ar = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+        # loan receivables
+    measures = ["LoansAndLeasesReceivableNetReportedAmount",
+        "LoansAndLeasesReceivableNetOfDeferredIncome",
+        "LoansReceivableFairValueDisclosure",
+        "LoansAndLeasesReceivableGrossCarryingAmount"]
+    most_recent_loans_rec, _, yearly_loans_rec = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+        
+        # notes receivables
+    measures = ["NotesReceivableNet",
+        "NotesReceivableFairValueDisclosure",
+        "NotesReceivableGross"]
+    most_recent_notes_rec, _, yearly_notes_rec = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    merge_subsets(yearly_receivables, [yearly_ar, yearly_loans_rec, yearly_notes_rec])
+
+    measures = [
+        # full
+        "MarketableSecurities"
+        "AvailableForSaleSecurities"]
+    most_recent_securities, _, yearly_securities = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+        # to sum high level
+    measures = ["AvailableForSaleSecuritiesDebtSecurities"]
+    most_recent_debtsecurities, _, yearly_debtsecurities = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+    measures = ["AvailableForSaleSecuritiesEquitySecurities"]
+    most_recent_equitysecurities, _, yearly_equitysecurities = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    merge_subsets(yearly_securities, [yearly_debtsecurities, yearly_equitysecurities])
+
+    measures = ["DerivativeAssets",
+                "DerivativeAssetsCurrent"]
+    most_recent_derivatives, _, yearly_derivatives = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["HeldToMaturitySecurities",
+                "HeldToMaturitySecuritiesFairValue",
+                "HeldToMaturitySecuritiesCurrent",
+                ]
+    most_recent_held_securities, _, yearly_held_securities = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["AvailableForSaleSecuritiesNoncurrent",
+                "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
+                ]
+    most_recent_non_curr_sec, _, yearly_non_curr_sec = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["MarketableSecuritiesCurrent"]
+    most_recent_marksecurities_cur, _, yearly_marksecurities_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["ShortTermInvestments"]
+    most_recent_st_inv, _, yearly_st_inv = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["MoneyMarketFundsAtCarryingValue"]
+    most_recent_mm, _, yearly_mm = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["AvailableForSaleSecuritiesDebtSecuritiesCurrent"]
+    most_recent_debtsecurities_cur, _, yearly_debtsecurities_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    merge_subsets(yearly_securities, [yearly_derivatives, yearly_held_securities, yearly_non_curr_sec,
+                                      yearly_marksecurities_cur, yearly_st_inv, yearly_mm, yearly_debtsecurities_cur])
+
+    merge_subsets(yearly_current_assets, [yearly_cash_and_restricted, yearly_inventory, yearly_other_current_assets,
+                                          yearly_receivables, yearly_securities])
+
+    ##### Non current assets ####
+    measures = ["AssetsNoncurrent",
+                "NoncurrentAssets"]
+    most_recent_non_curr_asset, _, yearly_non_curr_asset = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### Equity investments ####
+    measures = [
+        "EquityMethodInvestmentAggregateCost",
+        "EquityMethodInvestments",
+        "InvestmentOwnedAtCost",
+        "Investments",
+        "InvestmentsInAffiliatesSubsidiariesAssociatesAndJointVentures",
+    ]
+    most_recent_equity_investments, _, yearly_equity_investments = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = [
+        "EquityMethodInvestmentsFairValueDisclosure",
+        "InvestmentOwnedAtFairValue",
+        "InvestmentsFairValueDisclosure",
+    ]
+    most_recent_equity_inv_fv, _, yearly_equity_inv_fv = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["EquitySecuritiesWithoutReadilyDeterminableFairValueAmount",]
+    most_recent_equity_inv_notfv, _, yearly_equity_inv_notfv = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    merge_subsets(yearly_equity_investments, [yearly_equity_inv_fv, yearly_equity_inv_notfv])
+
+    measures = ["MarketableSecuritiesNoncurrent",]
+    most_recent_securities_non_curr, _, yearly_securities_non_curr = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    yearly_equity_investments_and_securities = {"dates":[], "values":[]}
+    merge_subsets(yearly_equity_investments_and_securities, [yearly_equity_investments, yearly_securities_non_curr])
+
+    #### Other financial assets ####
+    measures = [
+        "PrepaidExpenseNoncurrent",
+        "PrepaidExpenseOtherNoncurrent",
+    ]
+    most_recent_prepaid_non_curr, _, yearly_prepaid_non_curr = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = [
+        "RestrictedCashAndCashEquivalentsNoncurrent",
+        "RestrictedCashAndInvestmentsNoncurrent",
+        "RestrictedCashNoncurrent"
+    ]
+    most_recent_cash_non_curr, _, yearly_cash_non_curr = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["DerivativeAssetsNoncurrent", ]
+    most_recent_derivatives_non_curr, _, yearly_derivatives_non_curr = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["EscrowDeposit"]
+    most_recent_escrow, _, yearly_escrow = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    yearly_other_financial_assets = {"dates":[], "values":[]}
+    merge_subsets(yearly_other_financial_assets, [yearly_prepaid_non_curr, yearly_cash_non_curr,
+                                                  yearly_derivatives_non_curr, yearly_escrow])
+
+    #### PP&E ####
+    measures = [
+        "PropertyPlantAndEquipmentNet",
+        "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization"
+    ]
+    most_recent_ppe, _, yearly_ppe = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### Investment property ####
+    measures = [
+        "RealEstateInvestments",
+        "RealEstateInvestmentPropertyNet",
+        "RealEstateInvestmentPropertyAtCost",
+        "RealEstateHeldforsale"
+    ]
+    most_recent_property, _, yearly_property = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = ["InvestmentBuildingAndBuildingImprovements"]
+    most_recent_buildings, _, yearly_buildings = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    measures = [
+        "LandAndLandImprovements",
+        "Land",
+    ]
+    most_recent_land, _, yearly_land = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    merge_subsets(yearly_property, [yearly_buildings, yearly_land])
+
+    merge_subsets(yearly_non_curr_asset, [yearly_property, yearly_ppe, yearly_other_financial_assets,
+                                          yearly_equity_investments_and_securities])
+
+    merge_subsets(yearly_assets, [yearly_current_assets, yearly_non_curr_asset])
+
+    measures = [
+        "UnrecognizedTaxBenefits",
+        "UnrecognizedTaxBenefitsThatWouldImpactEffectiveTaxRate",
+        "IncomeTaxesReceivableNoncurrent",
+    ]
+    most_recent_tax_benefit, _, yearly_tax_benefit = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### LIABILITIES ####
+    measures = [
+        "Liabilities",
+        "LiabilitiesFairValueDisclosure",
+        "LiabilitiesAssumed1",
+    ]
+    most_recent_liabilities, _, yearly_liabilities = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
+
+    #### Debt ####
+    measures = [
+
+        # full debt
+        "DebtLongtermAndShorttermCombinedAmount",
+        "DebtInstrumentFaceAmount",
+        "DebtInstrumentFairValue",
+        "LongTermDebt",
+        "LongTermDebtFairValue",
+        "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+
+        "LineOfCredit",
+        "LineOfCreditFacilityFairValueOfAmountOutstanding",
+        "ConvertibleNotesPayable",
+        "ConvertibleDebt",
+        "ConvertibleDebtFairValueDisclosures",
+        "MortgageLoansOnRealEstate",
+        "OtherBorrowings",
+
+        # long term debt
+        "LongTermDebtNoncurrent",
+        "DebtInstrumentCarryingAmount",
+        "LongTermDebtAndCapitalLeaseObligations",
+        
+        "LongTermLineOfCredit",
+        "LongTermNotesPayable",
+        "ConvertibleLongTermNotesPayable",
+        "ConvertibleDebtNoncurrent",
+
+        # short term debt
+        "DebtCurrent",
+        "LongTermDebtCurrent",
+        "LongTermDebtAndCapitalLeaseObligationsCurrent",
+        
+        "BankOverdrafts",
+        "BridgeLoan",
+        "CommercialPaper",
+        "CommercialPaperAtCarryingValue",
+        "ConvertibleDebtCurrent",
+        "LoansPayable",
+        "LinesOfCreditCurrent",
+
+    ]
+
+    # TODO Complete Debt
+
+    #### CURRENT Liabilities ####
+    #### Non Current Liabilities ####
+    #### EQUITY ####
+    #### EQUITY + LIABILITIES ####
+
+    #### CF Statement ####
+
+def matrix_fin_values():
+
+    docs = mongodb.get_collection_documents("financial_data")
+    measures = [
+        "OtherAssetsCurrent",
+        "OtherAssetsFairValueDisclosure",
+        "OtherAssetsMiscellaneous",
+        "OtherAssetsMiscellaneousCurrent",
+        "PrepaidExpenseAndOtherAssetsCurrent",
+        "PrepaidExpenseCurrent",
+        "PrepaidInsurance",
+        "PrepaidTaxes"
     ]
 
     l = []
@@ -632,10 +1129,11 @@ def main():
     # group_csv()
     # extract_company_financial_information(ATKR_CIK)
 
-
     # matrix_fin_values()
+
     # examine_financial_data("0000860730")
     # print()
+
     extract_company_financial_information(AAPL_CIK)
 
 
