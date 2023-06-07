@@ -1,20 +1,23 @@
 from configparser import ConfigParser
 
-import pymongo
 from pymongo import MongoClient
 import os
-import json
 
-db_name = 'company_eval'
-
+DB_NAME = 'company_eval'
 
 def get_mongodb_client():
+    """
+    Get mongodb client
+    :return: mongodb client
+    """
 
+    # Get credentials
     parser = ConfigParser()
     _ = parser.read(os.path.join("credentials.cfg"))
     username = parser.get("mongo_db", "username")
     password = parser.get("mongo_db", "password")
 
+    # Set connection string
     LOCAL_CONNECTION = "mongodb://localhost:27017"
     ATLAS_CONNECTION = f"mongodb+srv://{username}:{password}@cluster0.3dxfmjo.mongodb.net/?" \
                        f"retryWrites=true&w=majority"
@@ -22,18 +25,15 @@ def get_mongodb_client():
                           f"retryWrites=true&w=majority&tls=true"
     # print(ATLAS_CONNECTION)
 
-    # Provide the mongodb atlas url to connect python to mongodb using pymongo
     connection_string = LOCAL_CONNECTION
-    # Create a connection using MongoClient. You can import MongoClient or use pymongo.MongoClient
+
+    # Create a connection using MongoClient
     client = MongoClient(connection_string)
-    # Create the database for our example (we will use the same database throughout the tutorial
+
     return client
 
-def get_database(db_name):
-    return get_mongodb_client()[db_name]
-
 def get_collection(collection_name):
-    db = get_database(db_name)
+    db = get_mongodb_client()[DB_NAME]
     return db[collection_name]
 
 def get_file_size(file_name):
