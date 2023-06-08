@@ -1,7 +1,23 @@
 import pandas as pd
+import numpy as np
 import mongodb
-from edgar_utils import ATKR_CIK
+from edgar_utils import ATKR_CIK, company_from_cik
+from postgresql import get_df_from_table, get_generic_info, currency_bond_yield, get_industry_data
+from valuation_helper import convert_currencies, get_ttm_info, get_target_info, get_normalized_info, get_dividends_info, \
+    get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation
+from yahoo_finance import get_current_price_from_yahoo
 
+EARNINGS_TTM = "EARNINGS_TTM"
+EARNINGS_NORM = "EARNINGS_NORM"
+GROWTH_FIXED = "GROWTH_FIXED"
+GROWTH_TTM = "GROWTH_TTM"
+GROWTH_NORM = "GROWTH_NORM"
+
+STATUS_OK = "OK"
+STATUS_NI = "NI"
+STATUS_KO = "KO"
+
+recession_probability = 0.5
 
 def build_financial_df(doc, measure, unit="USD", tax="us-gaap"):
 
@@ -63,7 +79,7 @@ def get_ttm_from_df(df):
     # TTM = annual value + quarterly values after - corresponding quarterly values before
     ttm = last_yearly_row.val + post_quarterly_rows.val.sum() - pre_quarterly_rows.val.sum()
 
-    return ttm, last_yearly_row.name
+    return ttm, last_yearly_row.end
 
 def get_most_recent_value_from_df(df):
     """
@@ -115,7 +131,10 @@ def get_yearly_values_from_df(df, instant=False, last_annual_report_date=None):
             return
 
         # frame is a string CYXXXXQXI, we want the X between Q and I
-        quarter_of_annual_report = last_annual_report_row.iloc[0]["frame"][7]
+        try:
+            quarter_of_annual_report = last_annual_report_row.iloc[0]["frame"][7]
+        except:
+            print(last_annual_report_row)
 
         # keep only only rows with quarters of annual reports
         year_df = year_df[year_df.frame.str.contains(f"Q{quarter_of_annual_report}I")]
@@ -126,7 +145,7 @@ def get_yearly_values_from_df(df, instant=False, last_annual_report_date=None):
                 "last_annual_report_date": year_df.iloc[-1].end}
 
 def get_values_from_measures(doc, measures, get_ttm=True, get_most_recent=True, get_yearly=True, instant=False,
-                             last_annual_report_date=None, debug=False):
+                             last_annual_report_date=None, debug=False, unit="USD", tax="us-gaap"):
 
     """
     Retrieve requested financial values from company financial document (containing all history and all measures).
@@ -156,7 +175,7 @@ def get_values_from_measures(doc, measures, get_ttm=True, get_most_recent=True, 
     for m in measures:
 
         # Build the DataFrame
-        df = build_financial_df(doc, m)
+        df = build_financial_df(doc, m, unit, tax)
 
         # The df is None if the company does not have the measure m in its financial data
         if df is None or df.empty:
@@ -242,7 +261,7 @@ def merge_subsets_yearly(superset, subsets, must_include=None):
     with indexes included in 'must_include' have values. In the example above for example we can say to add the 2019
     value for Total Assets iff we have Current Assets for 2019. If we have only Non-Current assets we will not add the
     2019 value for Total Assets.
-    :return: superset with the added values (if any)
+    :return:
     """
 
     to_add = {"dates":[],"values":[]}
@@ -322,15 +341,34 @@ def merge_subsets_yearly(superset, subsets, must_include=None):
 
 def merge_subsets_most_recent(superset, subsets):
 
+    """
+    Sum multiple most recent (or ttm) measures into a single one. Superset is the measure that should already represent the sum. Subsets are
+    its components.
+    This method is used when we don't have the aggregated measure or we don't have it for all the years where we have
+    the disaggregated measures.
+    For example we have Total Assets for 2020,2021,2022 + Current Assets and Non-Current Assets from 2019 to 2022.
+    In this case we can build Total Assets also for 2019.
+    :param superset: aggregated measure
+    :param subsets: disaggregated measures to be summed
+    :return:
+    """
+
     replace = False
     for s in subsets:
-        if superset["date"] is None or s["date"] > superset["date"]:
+        if superset["date"] is None or (s["date"] is not None and s["date"] > superset["date"]):
             replace = True
             break
 
     if replace:
 
-        d = max([x["date"] for x in subsets])
+        dates = [x["date"] for x in subsets if x["date"] is not None]
+
+        # we are here if neither the superset nor the subsets have any value
+        if len(dates) == 0:
+            return
+
+        d = max(dates)
+
         superset["date"] = d
         superset["value"] = 0
 
@@ -338,14 +376,30 @@ def merge_subsets_most_recent(superset, subsets):
             if s["date"] == d:
                 superset["value"] += s["value"]
 
-def extract_shares(doc):
+def extract_shares(doc, last_annual_report_date):
     """
     Extract number of shares from company financial document
     :param doc: company financial document
-    :return: number of common shares outstanding
+    :return: number of common shares outstanding (most recent and annual)
     """
     df = build_financial_df(doc, "EntityCommonStockSharesOutstanding", unit="shares", tax="dei")
-    return get_most_recent_value_from_df(df)
+
+    most_recent_shares, _ = get_most_recent_value_from_df(df)
+    yearly_shares = get_yearly_values_from_df(df, instant=True, last_annual_report_date=last_annual_report_date)
+
+    measures = ["CommonStockSharesOutstanding",
+                # "WeightedAverageNumberOfSharesOutstandingBasic", # not instant
+                # "WeightedAverageNumberOfDilutedSharesOutstanding", # not instant
+                "CommonStockSharesIssued"]
+
+    _, _, yearly_shares = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False,
+        get_most_recent=False, debug=False, unit="shares")
+
+    return {
+        "mr_shares": most_recent_shares,
+        "shares": yearly_shares
+    }
 
 def extract_income_statement(doc):
     """
@@ -812,13 +866,10 @@ def extract_balance_sheet_noncurrent_assets(doc, last_annual_report_date):
     most_recent_securities_non_curr, _, _ = get_values_from_measures(
         doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
 
-    yearly_equity_investments_and_securities = {"dates": [], "values": []}
+    # yearly_equity_investments_and_securities = {"dates": [], "values": []}
     # merge_subsets_yearly(yearly_equity_investments_and_securities, [yearly_equity_investments, yearly_securities_non_curr])
 
-    if most_recent_securities_non_curr["date"] > most_recent_equity_investments["date"]:
-        most_recent_equity_investments["date"] = most_recent_securities_non_curr["date"]
-        most_recent_equity_investments["value"] = most_recent_securities_non_curr["value"]
-
+    merge_subsets_most_recent(most_recent_equity_investments, [most_recent_securities_non_curr])
 
     #### Other financial assets ####
     measures = [
@@ -1109,23 +1160,23 @@ def extract_balance_sheet_liabilities(doc, last_annual_report_date, most_recent_
         doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
 
     measures = ["DerivativeLiabilities"]
-    most_recent_derivatives_liability, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_derivatives_liability, _, yearly_derivatives_liability = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = [
         "AccountsPayableAndAccruedLiabilitiesCurrentAndNoncurrent",
         "AccountsPayableCurrentAndNoncurrent",
     ]
-    most_recent_ap, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_ap, _, yearly_ap = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["DueToRelatedPartiesCurrentAndNoncurrent"]
-    most_recent_due_related_parties, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_due_related_parties, _, yearly_due_related_parties = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["DueToAffiliateCurrentAndNoncurrent"]
-    most_recent_due_affiliates, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_due_affiliates, _, yearly_due_affiliates = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     # yearly_liabilities_ex_debt = {"dates": [], "values": []}
     # merge_subsets_yearly(yearly_liabilities_ex_debt, [yearly_derivatives_liability, yearly_ap, yearly_due_related_parties,
@@ -1140,40 +1191,40 @@ def extract_balance_sheet_liabilities(doc, last_annual_report_date, most_recent_
         "AccountsPayableAndOtherAccruedLiabilitiesCurrent",
         "AccountsPayableAndAccruedLiabilitiesCurrent",
     ]
-    most_recent_ap_complete_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_ap_complete_cur, _, yearly_ap_complete_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["AccountsPayableCurrent"]
-    most_recent_ap_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_ap_cur, _, yearly_ap_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["AccountsPayableOtherCurrent"]
-    most_recent_apother_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_apother_cur, _, yearly_apother_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["AccountsPayableRelatedPartiesCurrent"]
-    most_recent_ap_rel_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_ap_rel_cur, _, yearly_ap_rel_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["AccountsPayableTradeCurrent"]
-    most_recent_ap_trade_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_ap_trade_cur, _, yearly_ap_trade_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
-    # merge_subsets_yearly(yearly_ap_complete_cur, [yearly_ap_cur, yearly_apother_cur, yearly_ap_rel_cur,
-    #                                               yearly_ap_trade_cur])
+    merge_subsets_yearly(yearly_ap_complete_cur, [yearly_ap_cur, yearly_apother_cur, yearly_ap_rel_cur,
+                                                  yearly_ap_trade_cur])
 
 
     measures = ["DueToAffiliateCurrent"]
-    most_recent_due_affiliates_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_due_affiliates_cur, _, yearly_due_affiliates_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["DueToRelatedPartiesCurrent"]
-    most_recent_due_related_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_due_related_cur, _, yearly_due_related_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     measures = ["DerivativeLiabilitiesCurrent"]
-    most_recent_derivatives_liability_cur, _, _ = get_values_from_measures(
-        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, get_yearly=False, debug=False)
+    most_recent_derivatives_liability_cur, _, yearly_derivatives_liability_cur = get_values_from_measures(
+        doc, measures, instant=True, last_annual_report_date=last_annual_report_date, get_ttm=False, debug=False)
 
     # merge_subsets_yearly(yearly_liabilities_cur, [yearly_ap_complete_cur, yearly_due_affiliates_cur, yearly_due_related_cur,
     #                                               yearly_derivatives_liability_cur])
@@ -1215,8 +1266,17 @@ def extract_balance_sheet_liabilities(doc, last_annual_report_date, most_recent_
                                                         most_recent_due_affiliates, most_recent_due_related_parties,
                                                         most_recent_debt])
 
+    # for working capital
+    merge_subsets_yearly(yearly_ap_complete_cur, [yearly_ap])
+    merge_subsets_yearly(yearly_due_affiliates_cur, [yearly_due_affiliates])
+    merge_subsets_yearly(yearly_due_related_cur, [yearly_due_related_parties])
+
+
     return {
-        "mr_liabilities": most_recent_liabilities
+        "mr_liabilities": most_recent_liabilities,
+        "account_payable": yearly_ap_complete_cur,
+        "due_to_affiliates": yearly_due_affiliates_cur,
+        "due_to_related_parties": yearly_due_related_cur
     }
 
 def extract_balance_sheet_equity(doc, last_annual_report_date):
@@ -1245,7 +1305,7 @@ def extract_balance_sheet_equity(doc, last_annual_report_date):
 
     merge_subsets_yearly(yearly_equity, [yearly_equity_no_mi, yearly_minority_interest], (0,))
 
-    if most_recent_equity_no_mi["date"] > most_recent_equity["date"]:
+    if most_recent_equity["date"] is None or most_recent_equity_no_mi["date"] > most_recent_equity["date"]:
         merge_subsets_most_recent(most_recent_equity, [most_recent_equity_no_mi, most_recent_minority_interest])
 
     return {
@@ -1406,10 +1466,11 @@ def extract_company_financial_information(cik):
     """
 
     doc = mongodb.get_document("financial_data", cik)
-    shares, _ = extract_shares(doc)
 
     income_statement_measures = extract_income_statement(doc)
-    last_annual_report_date = income_statement_measures["yearly_revenue"]["last_annual_report_date"]
+    last_annual_report_date = income_statement_measures["revenue"]["last_annual_report_date"]
+
+    shares = extract_shares(doc, last_annual_report_date)
     current_assets = extract_balance_sheet_current_assets(doc, last_annual_report_date)
     non_current_assets = extract_balance_sheet_noncurrent_assets(doc, last_annual_report_date)
     debt = extract_balance_sheet_debt(doc, last_annual_report_date)
@@ -1418,6 +1479,7 @@ def extract_company_financial_information(cik):
     cashflow_statement_measures = extract_cashflow_statement(doc)
 
     return {
+        **shares,
         **income_statement_measures,
         **current_assets,
         **non_current_assets,
@@ -1427,9 +1489,502 @@ def extract_company_financial_information(cik):
         **cashflow_statement_measures
     }
 
-def valuation(cik):
+def get_selected_years(data, key, start, end):
+    """
+    Get the values corresponding to selected years from a dictionary {"key": {"dates":[],"values":[]}}
+    :param data: dictionary {"key": {"dates":[],"values":[]}}
+    :param key: the key of the dictionary that we want to extract the selected years
+    :param start: initial year
+    :param end: final year
+    :return: list of values corresponding to selected years (or 0 if year not found)
+    """
+
+    r = []
+
+    for y in range(start, end + 1, 1):
+        try:
+            idx = data[key]["dates"].index(y)
+            r.append(data[key]["values"][idx])
+        except ValueError:
+            r.append(0)
+
+    return r
+
+def valuation(cik, years=5, debug=False):
+    """
+
+    :param cik:
+    :param years:
+    :param debug:
+    :return:
+    """
+
     data = extract_company_financial_information(cik)
     print(data)
 
+    erp = get_df_from_table("damodaran_erp")
+    erp = erp[erp["date"] == erp["date"].max()]["value"].iloc[0]
+
+    company_info = company_from_cik(cik)
+    ticker = company_info["ticker"]
+
+    price_per_share = get_current_price_from_yahoo(ticker)
+    if price_per_share is None:
+        print(ticker, "delisted")
+        return
+
+    company_name, country, industry, region = get_generic_info(ticker)
+
+    yahoo_equity_ticker = get_df_from_table("yahoo_equity_tickers", f"where symbol = '{ticker}'", most_recent=True).iloc[0]
+    db_curr = yahoo_equity_ticker["currency"]
+    db_financial_curr = yahoo_equity_ticker["financial_currency"]
+
+    country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
+    country_stats = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
+    damodaran_bond_spread = get_df_from_table("damodaran_bond_spread", most_recent=True)
+
+    tax_rate = float(country_stats["tax_rate"])
+
+    country_default_spread = float(country_stats["adjusted_default_spread"])
+    alpha_3_code = country_stats["alpha_3_code"]
+    country_risk_premium = float(country_stats["country_risk_premium"])
+    final_erp = float(erp) + country_risk_premium
+
+    currency_10y_bond = currency_bond_yield(country, alpha_3_code, country_default_spread)
+
+    if debug:
+        print("===== GENERAL INFORMATION =====\n")
+        print("ticker", ticker)
+        print("cik", cik)
+        print("company_name", company_name)
+        print("country", country)
+        print("region", region)
+        print("industry", industry)
+        print("financial currency", db_financial_curr)
+        print("Currency 10Y bond yield", currency_10y_bond)
+        print("erp", erp)
+        print("\n\n")
+
+    target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity = \
+        get_industry_data(industry, region, debug=debug)
+
+    mr_original_min_interest = data["mr_minority_interest"]["value"]
+    mr_minority_interest = mr_original_min_interest * pbv
+
+    final_year = data["revenue"]["dates"][-1]
+    initial_year = final_year - years + 1
+
+    mr_shares = data["mr_shares"]
+    shares = get_selected_years(data, "shares", initial_year, final_year)
+
+    # CONVERT CURRENCY
+    fx_rate = None
+
+    # they are different
+    if db_curr != db_financial_curr:
+        fx_rate = convert_currencies(db_curr, db_financial_curr, debug)
+
+    fx_rate_financial_USD = 1
+    if db_financial_curr != "USD":
+        fx_rate_financial_USD = convert_currencies("USD", db_financial_curr, debug)
+
+
+    ttm_revenue = data["ttm_revenue"]["value"]
+    ttm_ebit = data["ttm_ebit"]["value"]
+    ttm_net_income = data["ttm_net_income"]["value"]
+    ttm_dividends = data["ttm_dividends"]["value"]
+    ttm_interest_expense = data["ttm_interest_expenses"]["value"]
+    mr_cash = data["mr_cash"]["value"]
+    mr_debt = data["mr_debt"]["value"]
+    mr_equity = data["mr_equity"]["value"]
+    revenue = get_selected_years(data, "revenue", initial_year, final_year)
+    ebit = get_selected_years(data, "ebit", initial_year, final_year)
+    net_income = get_selected_years(data, "net_income", initial_year, final_year)
+    dividends = get_selected_years(data, "dividends", initial_year, final_year)
+    capex = get_selected_years(data, "capex", initial_year, final_year)
+    depreciation = get_selected_years(data, "depreciation", initial_year, final_year)
+    equity_bv = get_selected_years(data, "equity", initial_year, final_year)
+    cash = get_selected_years(data, "cash", initial_year, final_year)
+    debt_bv = get_selected_years(data, "debt", initial_year, final_year)
+    r_and_d = get_selected_years(data, "rd", initial_year, final_year)
+
+    eps = []
+    for i, n in enumerate(net_income):
+        try:
+            eps.append(n / shares[i])
+        except:
+            eps.append(0)
+
+    # WC = inventory + receivables + other assets - payables - due to affiliates - due to related
+    l = {}
+    for i in ["inventory","receivables","other_assets","account_payable","due_to_affiliates","due_to_related_parties"]:
+        val = get_selected_years(data, i, initial_year-1, final_year)
+        print(i,":",val)
+        l[i] = val
+
+    df = pd.DataFrame(l)
+    df["wc"] = df["inventory"] + df["receivables"] + df["other_assets"] - df["account_payable"] \
+               - df["due_to_affiliates"] - df["due_to_related_parties"]
+    df["delta_wc"] = df["wc"].diff(1)
+    df = df.dropna()
+
+    working_capital = df["wc"].to_list()
+    delta_wc = df["delta_wc"].to_list()
+
+    print("eps", eps)
+    print("working_capital", working_capital)
+
+    print("\n\n")
+    print("===== R&D =====\n")
+    print("r_and_d", r_and_d)
+
+    if debug:
+        print("\n\n")
+        print("===== Last Available Data =====\n")
+        print("Outstanding Shares", mr_shares)
+        print("Price/Share (price currency)", price_per_share)
+        print("FX Rate:", 1 if fx_rate is None else fx_rate)
+        print("FX Rate USD:", fx_rate_financial_USD)
+        print("ttm_revenue", ttm_revenue)
+        print("ttm_ebit", ttm_ebit)
+        print("ttm_net_income", ttm_net_income)
+        print("ttm_dividends", ttm_dividends)
+        print("ttm_interest_expense", ttm_interest_expense)
+        print("minority_interest", mr_original_min_interest, "=>", mr_minority_interest)
+        print("cash", mr_cash)
+        print("BV of debt", mr_debt)
+        print("BV of equity", mr_equity)
+        print("\n\n")
+        print("===== Historical Data =====\n")
+        print("revenue", revenue)
+        print("ebit", ebit)
+        print("net_income", net_income)
+        print("eps", eps)
+        print("dividends", dividends)
+        print("working_capital", working_capital)
+        print("capex", capex)
+        print("depreciation", depreciation)
+        print("equity_bv", equity_bv)
+        print("cash", cash)
+        print("debt_bv", debt_bv)
+        print("\n\n")
+        print("===== R&D =====\n")
+        print("r_and_d", r_and_d)
+        print("\n\n")
+
+    ttm_eps = ttm_net_income / mr_shares
+
+    r_and_d_growth = []
+    for i in range(len(r_and_d) - 1):
+        try:
+            r_and_d_growth.append(r_and_d[i + 1] / r_and_d[i] - 1)
+        except:
+            r_and_d_growth.append(0)
+
+    r_and_d_value = sum(i[0] * i[1] for i in zip(r_and_d, [0.2, 0.4, 0.6, 0.8, 1]))
+
+    amortization_current_year = sum([i / 5 for i in r_and_d[:-1]])
+    amortization_current_year += r_and_d[0] * (1 - np.mean(r_and_d_growth)) / 5
+
+    ebit_r_and_d_adj = r_and_d[-1] - amortization_current_year - r_and_d[-1] * 0.8 * tax_rate
+
+    reinvestment = []
+
+    while len(depreciation) < len(capex):
+        try:
+            depreciation.insert(0, depreciation[0])
+        except IndexError:
+            depreciation.insert(0, 0)
+
+    for i in range(len(capex)):
+        reinvestment.append(capex[i] + delta_wc[i] - depreciation[i])
+
+    ebit_adj, equity_bv_adj, roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last = \
+        get_ttm_info(ttm_ebit, ttm_net_income, ebit_r_and_d_adj, equity_bv, r_and_d_value, tax_rate, debt_bv, cash, reinvestment,
+                     ttm_dividends, industry_payout)
+
+    interest_coverage_ratio = 12.5
+
+    try:
+        if ttm_interest_expense > 0:
+            interest_coverage_ratio = ebit_adj / ttm_interest_expense
+    except:
+        pass
+
+    damodaran_bond_spread["greater_than"] = pd.to_numeric(damodaran_bond_spread["greater_than"])
+    damodaran_bond_spread["less_than"] = pd.to_numeric(damodaran_bond_spread["less_than"])
+    spread = damodaran_bond_spread[interest_coverage_ratio >= damodaran_bond_spread["greater_than"]]
+    spread = spread[interest_coverage_ratio < spread["less_than"]]
+    spread = spread.iloc[0]
+    company_default_spread = float(spread["spread"])
+
+    ebit_after_tax = [x*(1-tax_rate) for x in ebit]
+
+    roc = []
+    roe = []
+    avg_equity = sum(equity_bv) / len(equity_bv)
+    for i in range(len(equity_bv)):
+        invested_capital = debt_bv[i] + equity_bv[i] - cash[i]
+        if invested_capital <= 0:
+            roc.append(0)
+        else:
+            try:
+                roc.append(ebit_after_tax[i] / invested_capital)
+            except:
+                roc.append(0)
+        if equity_bv[i] > 0:
+            eq = equity_bv[i]
+        else:
+            eq = avg_equity
+        try:
+            roe.append(net_income[i] / eq)
+        except:
+            roe.append(0)
+
+    operating_margin = []
+    delta_revenue = []
+    for i in range(len(revenue)):
+        if i > 0:
+            delta_revenue.append(revenue[i] - revenue[i - 1])
+        try:
+            operating_margin.append(ebit[i] / revenue[i])
+        except:
+            operating_margin.append(0)
+
+    cagr, riskfree, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital = \
+        get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, currency_10y_bond,
+                        unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity, debug=debug)
+
+    revenue_5y, ebit_5y, operating_margin_5y, sales_capital_5y, roc_5y, reinvestment_5y, growth_5y, \
+    net_income_5y, roe_5y, reinvestment_eps_5y, growth_eps_5y = \
+        get_normalized_info(revenue, ebit, delta_revenue, reinvestment, target_sales_capital,
+                        ebit_after_tax, industry_payout, cagr, net_income, roe, dividends, eps, roc, ebit_adj, ttm_ebit)
+
+    eps_5y, payout_5y = get_dividends_info(eps, dividends)
+
+    survival_prob, cost_of_debt, equity_mkt, debt_mkt, debt_equity, \
+    levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital = \
+        get_final_info(ttm_interest_expense, riskfree, country_default_spread, mr_shares, debt_bv, unlevered_beta,
+                       tax_rate, final_erp, company_default_spread, price_per_share, fx_rate)
+
+    mr_receivables = data["mr_receivables"]["value"]
+    mr_inventory = data["mr_inventory"]["value"]
+    mr_securities = data["mr_securities"]["value"]
+    mr_other_current_assets = data["mr_other_assets"]["value"]
+    mr_ppe = data["mr_ppe"]["value"]
+    mr_equity_investments = data["mr_equity_investments"]["value"]
+    mr_total_liabilities = data["mr_liabilities"]["value"]
+
+    try:
+        liquidation_value = calculate_liquidation_value(mr_cash, mr_receivables, mr_inventory, mr_securities,
+                                                        mr_other_current_assets,
+                                                        mr_ppe, mr_equity_investments, mr_total_liabilities, equity_mkt,
+                                                        debt_mkt, mr_debt, mr_minority_interest, debug=debug)
+    except:
+        liquidation_value = 0
+
+    if debug:
+        print("===== Growth =====\n")
+        print("cagr", round(cagr,4))
+        print("riskfree", round(riskfree,4))
+        print("\n\n")
+        print("===== Model Helper Calculation =====\n")
+        print("roc_last", round(roc_last,4))
+        print("reinvestment_last", round(reinvestment_last,4))
+        print("growth_last", round(growth_last,4))
+        print("roc_5y", round(roc_5y,4))
+        print("reinvestment_5y", round(reinvestment_5y,4))
+        print("growth_5y", round(growth_5y,4))
+        print("revenue_5y", revenue_5y)
+        print("ebit_5y", ebit_5y)
+        print("roe_last", round(roe_last,4))
+        print("reinvestment_eps_last", round(reinvestment_eps_last,4))
+        print("growth_eps_last", round(growth_eps_last,4))
+        print("sales_capital_5y", round(sales_capital_5y,4))
+        print("roe_5y", round(roe_5y,4))
+        print("reinvestment_eps_5y", round(reinvestment_eps_5y,4))
+        print("growth_eps_5y", round(growth_eps_5y,4))
+        print("eps_5y", round(eps_5y,4))
+        print("payout_5y", round(payout_5y,4))
+        print("industry_payout", round(industry_payout,4))
+        print("target_sales_capital", round(target_sales_capital,4))
+        print("\n\n")
+        print("===== Recap Info =====\n")
+        print("country_default_spread", round(country_default_spread,4))
+        print("country_risk_premium", round(country_risk_premium,4))
+        print("riskfree", round(riskfree,4))
+        print("final_erp", round(final_erp,4))
+        print("unlevered_beta", round(unlevered_beta,4))
+        print("tax_rate", round(tax_rate,4))
+        print("levered_beta", round(levered_beta,4))
+        print("cost_of_equity", round(cost_of_equity,4))
+        print("cost_of_debt", round(cost_of_debt,4))
+        print("equity_weight", round(equity_weight,4))
+        print("debt_weight", round(debt_weight,4))
+        print("cost_of_capital", round(cost_of_capital,4))
+        print("equity_mkt", round(equity_mkt,2))
+        print("debt_mkt", round(debt_mkt,2))
+        print("debt_equity", round(debt_equity,4))
+        print("equity_bv_adj", round(equity_bv_adj,2))
+        print("ebit_adj", round(ebit_adj,2))
+        print("interest_coverage_ratio", round(interest_coverage_ratio,2))
+        print("company_default_spread", round(company_default_spread,4))
+        print("survival_prob", round(survival_prob,4))
+        print("liquidation value", round(liquidation_value, 2))
+        print("\n\n")
+        print("===== Other Model inputs =====\n")
+        print("operating_margin_5y", round(operating_margin_5y,4))
+        print("target_operating_margin", round(target_operating_margin,4))
+        print("target_debt_equity", round(target_debt_equity,4))
+        print("target_levered_beta", round(target_levered_beta,4))
+        print("target_cost_of_equity", round(target_cost_of_equity,4))
+        print("target_cost_of_debt", round(target_cost_of_debt,4))
+        print("target_cost_of_capital", round(target_cost_of_capital,4))
+        print("\n\n")
+
+    mr_tax_benefits = data["mr_tax_benefits"]["value"]
+
+    stock_value_div_ttm_fixed = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
+                                                    riskfree, industry_payout, cost_of_equity,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug)
+    stock_value_div_norm_fixed = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
+                                                     riskfree, industry_payout, cost_of_equity,
+                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug)
+    stock_value_div_ttm_ttm = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
+                                                  industry_payout, cost_of_equity, target_cost_of_equity,
+                                                  growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug)
+    stock_value_div_norm_norm = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
+                                                    industry_payout, cost_of_equity,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug)
+    stock_value_div_ttm_fixed_recession = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
+                                                    riskfree, industry_payout, cost_of_equity,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+    stock_value_div_norm_fixed_recession = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
+                                                     riskfree, industry_payout, cost_of_equity,
+                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+    stock_value_div_ttm_ttm_recession = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
+                                                  industry_payout, cost_of_equity, target_cost_of_equity,
+                                                  growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+    stock_value_div_norm_norm_recession = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
+                                                    industry_payout, cost_of_equity,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+
+    stock_value_fcff_ttm_fixed = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug)
+    stock_value_fcff_norm_fixed = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                 target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                 debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                 target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                 liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug)
+    stock_value_fcff_ttm_ttm = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                              target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                              debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                              target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                              liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug)
+    stock_value_fcff_norm_norm = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug)
+    stock_value_fcff_ttm_fixed_recession = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                          target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                          debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                          target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug, recession=True)
+    stock_value_fcff_norm_fixed_recession = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                           target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                           debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                           target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                           liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug, recession=True)
+    stock_value_fcff_ttm_ttm_recession = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                        target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                        debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                        target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                        liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug, recession=True)
+    stock_value_fcff_norm_norm_recession = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                          target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
+                                                          debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
+                                                          target_cost_of_debt, cash, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
+                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=debug, recession=True)
+
+    fcff_values_list = [stock_value_fcff_ttm_fixed, stock_value_fcff_norm_fixed, stock_value_fcff_ttm_ttm,
+                       stock_value_fcff_norm_norm]
+    fcff_recession_values_list = [stock_value_fcff_ttm_fixed_recession, stock_value_fcff_norm_fixed_recession,
+                                              stock_value_fcff_ttm_ttm_recession, stock_value_fcff_norm_norm_recession]
+    div_values_list = [stock_value_div_ttm_fixed, stock_value_div_norm_fixed, stock_value_div_ttm_ttm,
+                       stock_value_div_norm_norm]
+    div_recession_values_list = [stock_value_div_ttm_fixed_recession, stock_value_div_norm_fixed_recession,
+                                             stock_value_div_ttm_ttm_recession, stock_value_div_norm_norm_recession]
+
+    fcff_value = summary_valuation(fcff_values_list)
+    fcff_recession_value = summary_valuation(fcff_recession_values_list)
+    ev_fcff = fcff_value * (1 - recession_probability) + fcff_recession_value * recession_probability
+    div_value = summary_valuation(div_values_list)
+    div_recession_value = summary_valuation(div_recession_values_list)
+    ev_dividends = div_value * (1 - recession_probability) + div_recession_value * recession_probability
+
+    liquidation_per_share = liquidation_value / mr_shares
+
+    if fx_rate is not None:
+        fcff_value *= fx_rate
+        div_value *= fx_rate
+        liquidation_per_share *= fx_rate
+
+    fcff_delta = price_per_share / ev_fcff - 1 if fcff_value > 0 else 10
+    div_delta = price_per_share / ev_dividends - 1 if div_value > 0 else 10
+    liquidation_delta = price_per_share / liquidation_per_share - 1 if liquidation_per_share > 0 else 10
+
+    market_cap_USD = equity_mkt * fx_rate_financial_USD
+    if market_cap_USD < 50 * 10 ** 3:
+        company_size = "Nano"
+    elif market_cap_USD < 300 * 10 ** 3:
+        company_size = "Micro"
+    elif market_cap_USD < 2 * 10 ** 6:
+        company_size = "Small"
+    elif market_cap_USD < 10 * 10 ** 6:
+        company_size = "Medium"
+    elif market_cap_USD < 200 * 10 ** 6:
+        company_size = "Large"
+    else:
+        company_size = "Mega"
+
+    status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, debug)
+
+    if debug:
+        print("MKT CAP USD: ", market_cap_USD)
+        print("\n\n")
+
+        print("FCFF values")
+        print([round(x, 2) for x in fcff_values_list])
+        print("\nFCFF values w/ Recession")
+        print([round(x, 2) for x in fcff_recession_values_list])
+        print("\n\nDiv values")
+        print([round(x, 2) for x in div_values_list])
+        print("\nDiv values w/ Recession")
+        print([round(x, 2) for x in div_recession_values_list])
+
+        print("\n\n\n")
+
+        print("Price per Share", price_per_share)
+        print("FCFF Result", ev_fcff)
+        print("FCFF Deviation", fcff_delta)
+        print("Dividends Result", ev_dividends)
+        print("Dividends Deviation", div_delta)
+        print("Status", status)
+
+    return price_per_share, fcff_value, div_value, fcff_delta, div_delta, status
+
+
 if __name__ == '__main__':
-    valuation(ATKR_CIK)
+    valuation(ATKR_CIK, debug=True)

@@ -1,7 +1,8 @@
 import mongodb
 import pandas as pd
 
-from quantitative_analysis import build_financial_df
+from edgar_utils import AAPL_CIK
+from quantitative_analysis import build_financial_df, extract_company_financial_information, get_selected_years
 
 
 def matrix_financial_metrics():
@@ -110,3 +111,37 @@ def examine_financial_data(cik):
 
     df = pd.concat(list_of_dfs)
     df.to_csv(f"financial_data_{cik}.csv", index=False)
+
+def delta_wc():
+
+
+    data = extract_company_financial_information(AAPL_CIK)
+
+    final_year = data["revenue"]["dates"][-1]
+    initial_year = final_year - 5 + 1
+
+    l = {}
+    for i in ["inventory","receivables","other_assets","account_payable","due_to_affiliates","due_to_related_parties"]:
+        val = get_selected_years(data, i, initial_year-1, final_year)
+        print(i,":",val)
+        l[i] = val
+    df = pd.DataFrame(l)
+
+    print(df.to_markdown())
+
+    df["wc"] = df["inventory"] + df["receivables"] + df["other_assets"] - df["account_payable"] \
+               - df["due_to_affiliates"] - df["due_to_related_parties"]
+    df["delta_wc"] = df["wc"].diff(1)
+    df = df.dropna()
+
+    print(df.to_markdown())
+
+    working_capital = df["wc"].to_list()
+    delta_wc = df["delta_wc"].to_list()
+
+    print("WC", working_capital)
+    print("Delta WC", delta_wc)
+
+
+if __name__ == '__main__':
+    delta_wc()
