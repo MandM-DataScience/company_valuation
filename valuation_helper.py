@@ -67,14 +67,21 @@ def convert_currencies(currency, financial_currency, debug):
 
     return fx_rate
 
-def get_ttm_info(ttm_ebit, ttm_net_income, ebit_r_and_d_adj, equity_bv, r_and_d_value, tax_rate, debt_bv, cash, reinvestment,
-                 ttm_dividends, industry_payout):
+def get_ttm_info(ttm_ebit, ttm_net_income, ebit_r_and_d_adj, mr_equity, r_and_d_value, tax_rate, mr_debt, mr_cash, mr_securities,
+                 reinvestment, ttm_dividends, industry_payout):
 
     ebit_adj = ttm_ebit + ebit_r_and_d_adj
-    equity_bv_adj = equity_bv[-1] + r_and_d_value
+    equity_bv_adj = mr_equity + r_and_d_value
+
+    print("ttm_ebit", ttm_ebit)
+    print("ebit_r_and_d_adj", ebit_r_and_d_adj)
+    print("ebit_adj", ebit_adj)
+    print("mr_equity", mr_equity)
+    print("r_and_d_value", r_and_d_value)
+    print("equity_bv_adj", equity_bv_adj)
 
     try:
-        roc_last = (ebit_adj * (1 - tax_rate)) / (debt_bv[-1] + equity_bv_adj - cash[-1])
+        roc_last = (ebit_adj * (1 - tax_rate)) / (mr_debt + equity_bv_adj - mr_cash - mr_securities)
     except:
         roc_last = 0
 
@@ -263,7 +270,7 @@ def get_dividends_info(eps, dividends):
         payout_5y = 0
     return eps_5y, payout_5y
 
-def get_final_info(ttm_interest_expense, riskfree, country_default_spread, shares, debt_bv, unlevered_beta,
+def get_final_info(ttm_interest_expense, riskfree, country_default_spread, shares, mr_debt, unlevered_beta,
                    tax_rate, final_erp, company_default_spread, price_per_share, fx_rate):
 
     survival_prob = (1 - company_default_spread) ** 10
@@ -274,7 +281,7 @@ def get_final_info(ttm_interest_expense, riskfree, country_default_spread, share
     if fx_rate is not None:
         equity_mkt /= fx_rate
 
-    debt_mkt = ttm_interest_expense * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + debt_bv[-1] / (
+    debt_mkt = ttm_interest_expense * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt / (
                 1 + cost_of_debt) ** 6
 
     try:
@@ -296,14 +303,14 @@ def get_final_info(ttm_interest_expense, riskfree, country_default_spread, share
            levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital
 
 def calculate_liquidation_value(cash, receivables, inventory, securities, other_current_assets, ppe,
-                                equity_investments, total_liabilities, equity_mkt, debt_mkt, debt_bv,
+                                equity_investments, total_liabilities, equity_mkt, debt_mkt, mr_debt,
                                 minority_interest, debug=True):
 
     percent_minority_interest = minority_interest / equity_mkt
+    # market_liquidation = equity_mkt + debt_mkt - mr_debt
+    # if market_liquidation < 0:
+    #     market_liquidation = 0
 
-    market_liquidation = equity_mkt + debt_mkt - debt_bv[-1]
-    if market_liquidation < 0:
-        market_liquidation = 0
     damodaran_liquidation = cash + (other_current_assets + inventory + receivables + ppe) * 0.75 + \
                             equity_investments * 0.5 - total_liabilities
     if damodaran_liquidation < 0:
@@ -312,7 +319,7 @@ def calculate_liquidation_value(cash, receivables, inventory, securities, other_
     if net_net_wc_liquidation < 0:
         net_net_wc_liquidation = 0
 
-    _sorted = sorted([market_liquidation, damodaran_liquidation, net_net_wc_liquidation], reverse=True)
+    _sorted = sorted([damodaran_liquidation, net_net_wc_liquidation], reverse=True)
 
     value_sum, weight_sum = (0, 0)
     for idx, value in enumerate(_sorted):
@@ -325,6 +332,7 @@ def calculate_liquidation_value(cash, receivables, inventory, securities, other_
     if debug:
         print("===== Liquidation Value =====\n")
         print("cash", cash)
+        print("securities", securities)
         print("receivables", receivables)
         print("inventory", inventory)
         print("other_current_assets_ms", other_current_assets)
@@ -334,8 +342,8 @@ def calculate_liquidation_value(cash, receivables, inventory, securities, other_
         print("percent_minority_interest", percent_minority_interest)
         print("equity_mkt", equity_mkt)
         print("debt_mkt", debt_mkt)
-        print("debt_bv", debt_bv[-1])
-        print("market_liquidation", market_liquidation)
+        print("debt_bv", mr_debt)
+        # print("market_liquidation", market_liquidation)
         print("damodaran_liquidation", damodaran_liquidation)
         print("net_net_wc_liquidation", net_net_wc_liquidation)
         print("liquidation_value", liquidation_value)
@@ -472,8 +480,8 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
 
 def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit_adj, target_operating_margin, tax_benefits,
                    tax_rate, sales_capital_5y, target_sales_capital, debt_weight, target_debt_equity, unlevered_beta,
-                   final_erp, cost_of_debt, target_cost_of_debt, cash, debt_mkt, minority_interest, survival_prob,
-                   share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, debug=True, recession=False):
+                   final_erp, cost_of_debt, target_cost_of_debt, mr_cash, mr_securities, debt_mkt, minority_interest, survival_prob,
+                   share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=True, recession=False):
 
     # earnings ttm + growth fixed
 
@@ -600,7 +608,8 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit
     terminal_value = fcff_history[-1] / (cost_of_capital_history[-1] - growth_history[-1])
     terminal_value_pv = terminal_value / cumulative_wacc_history[-1]
 
-    firm_value = sum(present_value_history[:-1]) + terminal_value_pv + cash[-1]
+    firm_value = sum(present_value_history[:-1]) + terminal_value_pv + mr_cash + mr_securities + mr_property
+
     equity_value = firm_value - debt_mkt - minority_interest
 
     try:
@@ -615,11 +624,11 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit
 
     if debug:
 
-        for i in [growth_history, revenue_history, margin_history, ebit_history, tax_history, ebit_after_tax_history,
-                  sales_capital_history, reinvestment_history, fcff_history, debt_ratio_history, cost_of_debt_history,
-                  cost_of_equity_history, cost_of_capital_history, cumulative_wacc_history, present_value_history]:
-            for idx, j in enumerate(i):
-                i[idx] = round(j,4)
+        # for i in [growth_history, revenue_history, margin_history, ebit_history, tax_history, ebit_after_tax_history,
+        #           sales_capital_history, reinvestment_history, fcff_history, debt_ratio_history, cost_of_debt_history,
+        #           cost_of_equity_history, cost_of_capital_history, cumulative_wacc_history, present_value_history]:
+        #     for idx, j in enumerate(i):
+        #         i[idx] = round(j,4)
 
         print(f"===== FCFF Valuation - {earnings_type} + {growth_type} recession:{recession} =====\n")
         print("expected_growth", growth_history)
@@ -640,7 +649,10 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit
         print("cumulative WACC", cumulative_wacc_history)
         print("present value", present_value_history)
         print("terminal value", round(terminal_value,2))
+        print("PV of FCFF during growth", sum(present_value_history[:-1]))
         print("PV of terminal value", round(terminal_value_pv,2))
+        print("Value of operating assets", sum(present_value_history[:-1])+terminal_value_pv)
+        print("Value of cash and property", mr_cash + mr_securities + mr_property)
         print("firm value", round(firm_value,2))
         print("debt outstanding", round(debt_mkt,2))
         print("equity value", round(equity_value,2))

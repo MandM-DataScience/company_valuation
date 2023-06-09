@@ -123,7 +123,6 @@ def delta_wc():
     l = {}
     for i in ["inventory","receivables","other_assets","account_payable","due_to_affiliates","due_to_related_parties"]:
         val = get_selected_years(data, i, initial_year-1, final_year)
-        print(i,":",val)
         l[i] = val
     df = pd.DataFrame(l)
 
