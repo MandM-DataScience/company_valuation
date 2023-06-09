@@ -67,21 +67,11 @@ def convert_currencies(currency, financial_currency, debug):
 
     return fx_rate
 
-def get_ttm_info(ttm_ebit, ttm_net_income, ebit_r_and_d_adj, mr_equity, r_and_d_value, tax_rate, mr_debt, mr_cash, mr_securities,
+def get_ttm_info(ebit_adj, ttm_net_income, equity_bv_adj, tax_rate, debt_bv_adj, mr_cash, mr_securities,
                  reinvestment, ttm_dividends, industry_payout):
 
-    ebit_adj = ttm_ebit + ebit_r_and_d_adj
-    equity_bv_adj = mr_equity + r_and_d_value
-
-    print("ttm_ebit", ttm_ebit)
-    print("ebit_r_and_d_adj", ebit_r_and_d_adj)
-    print("ebit_adj", ebit_adj)
-    print("mr_equity", mr_equity)
-    print("r_and_d_value", r_and_d_value)
-    print("equity_bv_adj", equity_bv_adj)
-
     try:
-        roc_last = (ebit_adj * (1 - tax_rate)) / (mr_debt + equity_bv_adj - mr_cash - mr_securities)
+        roc_last = (ebit_adj * (1 - tax_rate)) / (debt_bv_adj + equity_bv_adj - mr_cash - mr_securities)
     except:
         roc_last = 0
 
@@ -109,8 +99,8 @@ def get_ttm_info(ttm_ebit, ttm_net_income, ebit_r_and_d_adj, mr_equity, r_and_d_
 
     return ebit_adj, equity_bv_adj, roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last
 
-def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, currency_10y_bond,
-                    unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity, debug=True):
+def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, riskfree,
+                    unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity):
 
     cagr = None
     if ttm_revenue != revenue[-1]:
@@ -136,8 +126,6 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
         cagr = 0
         print("error CAGR 0 - no revenue first 3 years")
 
-    # print(first_index)
-    # print(first_revenue)
 
     if cagr is None:
 
@@ -194,8 +182,6 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
             value_sum += value * weight
 
         cagr = value_sum / weight_sum
-
-    riskfree = currency_10y_bond - country_default_spread
 
     spread_list = list(damodaran_bond_spread["spread"].unique())
     spread_list = [float(x) for x in spread_list]
@@ -270,18 +256,16 @@ def get_dividends_info(eps, dividends):
         payout_5y = 0
     return eps_5y, payout_5y
 
-def get_final_info(ttm_interest_expense, riskfree, country_default_spread, shares, mr_debt, unlevered_beta,
+def get_final_info(ttm_interest_expense, riskfree, cost_of_debt, shares, debt_bv_adj, unlevered_beta,
                    tax_rate, final_erp, company_default_spread, price_per_share, fx_rate):
 
     survival_prob = (1 - company_default_spread) ** 10
-
-    cost_of_debt = riskfree + country_default_spread + company_default_spread
 
     equity_mkt = shares * price_per_share
     if fx_rate is not None:
         equity_mkt /= fx_rate
 
-    debt_mkt = ttm_interest_expense * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt / (
+    debt_mkt = ttm_interest_expense * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + debt_bv_adj / (
                 1 + cost_of_debt) ** 6
 
     try:

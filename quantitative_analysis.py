@@ -19,8 +19,6 @@ STATUS_OK = "OK"
 STATUS_NI = "NI"
 STATUS_KO = "KO"
 
-recession_probability = 0.5
-
 def build_financial_df(doc, measure, unit="USD", tax="us-gaap"):
 
     """
@@ -1464,6 +1462,79 @@ def extract_cashflow_statement(doc):
         "capex": yearly_capex
     }
 
+def extract_operating_leases(doc):
+    """
+    Extract operating leases measures from company financial document.
+    :param doc: company financial document
+    :return: dict with most recent measures
+    """
+
+    # Last year expenses
+    measures = [
+        "OperatingLeasePayments",
+        "OperatingLeaseCost",
+        "OperatingLeaseExpense",
+    ]
+    mr_op_leases_expense, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    # Next year expenses
+    measures = [
+        "LesseeOperatingLeaseLiabilityPaymentsDueNextTwelveMonths",
+        "OperatingLeasesFutureMinimumPaymentsDueCurrent",
+        "LesseeOperatingLeaseLiabilityPaymentsDueNextRollingTwelveMonths",
+    ]
+    mr_op_leases_next_year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    # Next 2year expenses
+    measures = [
+        "LesseeOperatingLeaseLiabilityPaymentsDueYearTwo",
+        "OperatingLeasesFutureMinimumPaymentsDueInTwoYears",
+        "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearTwo",
+    ]
+    mr_op_leases_next_2year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    # Next 3year expenses
+    measures = [
+        "LesseeOperatingLeaseLiabilityPaymentsDueYearThree",
+        "OperatingLeasesFutureMinimumPaymentsDueInThreeYears",
+        "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearThree",
+    ]
+    mr_op_leases_next_3year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    # Next 4year expenses
+    measures = [
+        "LesseeOperatingLeaseLiabilityPaymentsDueYearFour",
+        "OperatingLeasesFutureMinimumPaymentsDueInFourYears",
+        "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearFour",
+    ]
+    mr_op_leases_next_4year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    # Next 5year expenses
+    measures = [
+        "LesseeOperatingLeaseLiabilityPaymentsDueYearFive",
+        "OperatingLeasesFutureMinimumPaymentsDueInFiveYears",
+        "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearFive",
+    ]
+    mr_op_leases_next_5year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    # After 5year expenses
+    measures = [
+        "LesseeOperatingLeaseLiabilityPaymentsDueAfterYearFive",
+        "OperatingLeasesFutureMinimumPaymentsDueThereafter",
+        "LesseeOperatingLeaseLiabilityPaymentsDueAfterRollingYearFive",
+    ]
+    mr_op_leases_after_5year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+
+    return {
+        "mr_op_leases_expense": mr_op_leases_expense,
+        "mr_op_leases_next_year": mr_op_leases_next_year,
+        "mr_op_leases_next_2year": mr_op_leases_next_2year,
+        "mr_op_leases_next_3year": mr_op_leases_next_3year,
+        "mr_op_leases_next_4year": mr_op_leases_next_4year,
+        "mr_op_leases_next_5year": mr_op_leases_next_5year,
+        "mr_op_leases_after_5year": mr_op_leases_after_5year
+    }
+
 def extract_company_financial_information(cik):
 
     """
@@ -1484,6 +1555,7 @@ def extract_company_financial_information(cik):
     liabilities = extract_balance_sheet_liabilities(doc, last_annual_report_date, debt["mr_debt"])
     equity = extract_balance_sheet_equity(doc, last_annual_report_date)
     cashflow_statement_measures = extract_cashflow_statement(doc)
+    leases = extract_operating_leases(doc)
 
     return {
         **shares,
@@ -1493,7 +1565,8 @@ def extract_company_financial_information(cik):
         **debt,
         **liabilities,
         **equity,
-        **cashflow_statement_measures
+        **cashflow_statement_measures,
+        **leases
     }
 
 def get_selected_years(data, key, start, end):
@@ -1517,14 +1590,31 @@ def get_selected_years(data, key, start, end):
 
     return r
 
-def valuation(cik, years=5, debug=False):
+def valuation(cik, years=5, recession_probability = 0.5, debug=False):
+    """
+    Compute valuation for company. Valuation is done following principles teached by Prof. Damodaran in his Valuation
+    Course (FCFF Valuation and Dividends Valuation).
+    We build 4 different scenarios for both FCFF and Dividends Valuation:
+    1. Earnings TTM & Historical Growth
+    2. Earnings Normalized & Historical Growth
+    3. Earnings TTM & Growth TTM
+    4. Earnings Normalized & Growth Normalized
+    Each scenario is also run with a recession hypothesis.
+    We compute a median value for FCFF, Recession FCFF, Dividends, Recession Dividends and then compute 2
+    Expected Values based on the recession_probability.
+    These 2 values are then used to compute the final valuation (value/share) skewing the result towards the lowest
+    value (to be conservative).
+
+    :param cik: company cik
+    :param years: how many financial years to consider in the valuation
+    :param debug:
+    :return: price_per_share (current price/share), fcff_value (FCFF EV), div_value (Dividends EV),
+    fcff_delta premium(discount) on shares, div_delta premium(discount) on shares, status
+    (OK if company is underpriced, NI if company is correctly priced, KO is company is overpriced)
     """
 
-    :param cik:
-    :param years:
-    :param debug:
-    :return:
-    """
+    # TODO Implement R&D Adjustments
+    # TODO Implement Op. Leases Adjustments
 
     data = extract_company_financial_information(cik)
     print(data)
@@ -1695,9 +1785,23 @@ def valuation(cik, years=5, debug=False):
     for i in range(len(capex)):
         reinvestment.append(capex[i] + delta_wc[i] - depreciation[i])
 
-    ebit_adj, equity_bv_adj, roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last = \
-        get_ttm_info(ttm_ebit, ttm_net_income, ebit_r_and_d_adj, mr_equity, r_and_d_value, tax_rate, mr_debt, mr_cash, mr_securities,
-                 reinvestment, ttm_dividends, industry_payout)
+    leases = [
+        data["mr_op_leases_expense"]["value"],
+        data["mr_op_leases_next_year"]["value"],
+        data["mr_op_leases_next_2year"]["value"],
+        data["mr_op_leases_next_3year"]["value"],
+        data["mr_op_leases_next_4year"]["value"],
+        data["mr_op_leases_next_5year"]["value"],
+        data["mr_op_leases_after_5year"]["value"],
+    ]
+
+    print("LEASES", leases)
+
+    return
+
+    # ebit_adj = ttm_ebit + ebit_r_and_d_adj + leases_adj
+    # equity_bv_adj = mr_equity + r_and_d_value
+    # debt_bv_adj = mr_debt + leases_value
 
     interest_coverage_ratio = 12.5
 
@@ -1714,12 +1818,20 @@ def valuation(cik, years=5, debug=False):
     spread = spread.iloc[0]
     company_default_spread = float(spread["spread"])
 
+    riskfree = currency_10y_bond - country_default_spread
+    cost_of_debt = riskfree + country_default_spread + company_default_spread
+
+    roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last = \
+        get_ttm_info(ebit_adj, ttm_net_income, equity_bv_adj, tax_rate, debt_bv_adj, mr_cash, mr_securities,
+                 reinvestment, ttm_dividends, industry_payout)
+
     ebit_after_tax = [x*(1-tax_rate) for x in ebit]
 
     roc = []
     roe = []
     avg_equity = sum(equity_bv) / len(equity_bv)
     for i in range(len(equity_bv)):
+
         invested_capital = debt_bv[i] + equity_bv[i] - cash[i] - securities[i]
         if invested_capital <= 0:
             roc.append(0)
@@ -1728,6 +1840,7 @@ def valuation(cik, years=5, debug=False):
                 roc.append(ebit_after_tax[i] / invested_capital)
             except:
                 roc.append(0)
+
         if equity_bv[i] > 0:
             eq = equity_bv[i]
         else:
@@ -1747,15 +1860,9 @@ def valuation(cik, years=5, debug=False):
         except:
             operating_margin.append(0)
 
-    print("REVENUE", revenue)
-    print("REVENUE HELPER", revenue_helper)
-    print("DELTA REVENUE", delta_revenue)
-    print("DELTA WC", delta_wc)
-
-
-    cagr, riskfree, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital = \
-        get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, currency_10y_bond,
-                        unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity, debug=debug)
+    cagr, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital = \
+        get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, riskfree,
+                        unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity)
 
     revenue_5y, ebit_5y, operating_margin_5y, sales_capital_5y, roc_5y, reinvestment_5y, growth_5y, \
     net_income_5y, roe_5y, reinvestment_eps_5y, growth_eps_5y = \
@@ -1766,7 +1873,7 @@ def valuation(cik, years=5, debug=False):
 
     survival_prob, cost_of_debt, equity_mkt, debt_mkt, debt_equity, \
     levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital = \
-        get_final_info(ttm_interest_expense, riskfree, country_default_spread, mr_shares, mr_debt, unlevered_beta,
+        get_final_info(ttm_interest_expense, riskfree, cost_of_debt, mr_shares, debt_bv_adj, unlevered_beta,
                        tax_rate, final_erp, company_default_spread, price_per_share, fx_rate)
 
     mr_receivables = data["mr_receivables"]["value"]
