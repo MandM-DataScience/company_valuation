@@ -3,3 +3,5 @@
 *.json
 credentials.cfg
 sandbox.py
+env
+__pycache__
