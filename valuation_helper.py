@@ -7,8 +7,109 @@ from urllib3.exceptions import ProtocolError
 import numpy as np
 from yahoo_finance import get_current_price_from_yahoo
 
+r_and_d_amortization = {
+    'Advertising': 2,
+    'Aerospace/Defense': 10,
+    'Air Transport': 10,
+    'Apparel': 3,
+    'Auto & Truck': 10,
+    'Auto Parts': 5,
+    'Bank (Money Center)': 2,
+    'Banks (Regional)': 2,
+    'Beverage (Alcoholic)': 3,
+    'Beverage (Soft)': 3,
+    "Broadcasting": 10,
+    "Brokerage & Investment Banking": 3,
+    'Building Materials': 5,
+    'Construction Supplies': 5,
+    "Business & Consumer Services": 5,
+    'Cable TV': 10,
+    'Chemical (Basic)': 10,
+    'Chemical (Diversified)': 10,
+    'Chemical (Specialty)': 10,
+    'Coal & Related Energy': 5,
+    'Computer & Peripherals': 5,
+    'Computer Services': 3,
+    'Diversified': 5,
+    "Drugs (Biotechnology)": 10,
+    "Drugs (Pharmaceutical)": 10,
+    'Education': 3,
+    'Electrical Equipment': 10,
+    'Electronics (Consumer & Office)': 5,
+    'Electronics (General)': 5,
+    "Engineering/Construction": 10,
+    'Entertainment': 3,
+    'Environmental & Waste Services': 5,
+    "Farming/Agriculture": 10,
+    'Financial Svcs. (Non-bank & Insurance)': 2,
+    'Food Processing': 3,
+    'Food Wholesalers': 3,
+    'Furn/Home Furnishings': 3,
+    "Green & Renewable Energy": 10,
+    "Healthcare Products": 5,
+    "Healthcare Support Services": 3,
+    'Heathcare Information and Technology': 3,
+    'Homebuilding': 5,
+    "Hospitals/Healthcare Facilities": 10,
+    'Hotel/Gaming': 3,
+    'Household Products': 3,
+    "Information Services": 3,
+    'Insurance (General)': 3,
+    'Insurance (Life)': 3,
+    'Insurance (Prop/Cas.)': 3,
+    'Investments & Asset Management': 3,
+    'Machinery': 10,
+    'Metals & Mining': 5,
+    'Office Equipment & Services': 5,
+    "Oil/Gas (Integrated)": 10,
+    "Oil/Gas (Production and Exploration)": 10,
+    "Oil/Gas Distribution": 10,
+    "Oilfield Svcs/Equip.": 5,
+    'Packaging & Container': 5,
+    'Paper/Forest Products': 10,
+    "Power": 10,
+    "Precious Metals": 5,
+    'Petroleum (Integrated)': 5,
+    'Petroleum (Producing)': 5,
+    'Precision Instrument': 5,
+    'Publishing & Newspapers': 3,
+    'R.E.I.T.': 3,
+    "Real Estate (Development)": 5,
+    "Real Estate (General/Diversified)": 5,
+    "Real Estate (Operations & Services)": 5,
+    'Recreation': 5,
+    'Reinsurance': 3,
+    'Restaurant/Dining': 2,
+    'Retail (Special Lines)': 2,
+    'Retail (Building Supply)': 2,
+    'Retail (General)': 2,
+    "Retail (Automotive)": 2,
+    "Retail (Distributors)": 2,
+    "Retail (Grocery and Food)": 2,
+    "Retail (Online)": 2,
+    "Rubber& Tires": 5,
+    'Semiconductor': 5,
+    'Semiconductor Equip': 5,
+    'Shipbuilding & Marine': 10,
+    'Shoe': 3,
+    "Software (Entertainment)": 3,
+    "Software (Internet)": 3,
+    "Software (System & Application)": 3,
+    'Steel': 5,
+    "Telecom (Wireless)": 5,
+    'Telecom. Equipment': 10,
+    'Telecom. Services': 5,
+    'Tobacco': 5,
+    'Toiletries/Cosmetics': 3,
+    'Transportation': 5,
+    'Transportation (Railroads)': 5,
+    'Trucking': 5,
+    'Utility (General)': 10,
+    'Utility (Water)': 10
 
-def convert_currencies(currency, financial_currency, debug):
+}
+
+def convert_currencies(currency, financial_currency):
 
     if (financial_currency == "GBP" and ("GBp" in currency or "0.01" in currency)) \
             or (financial_currency == "ZAR" and ("ZAC" in currency or "ZAc" in currency or "0.01" in currency)) \
@@ -67,16 +168,145 @@ def convert_currencies(currency, financial_currency, debug):
 
     return fx_rate
 
-def get_ttm_info(ebit_adj, ttm_net_income, equity_bv_adj, tax_rate, debt_bv_adj, mr_cash, mr_securities,
+def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
+    r_and_d_growth = []
+    for i in range(len(r_and_d) - 1):
+        try:
+            r_and_d_growth.append(r_and_d[i + 1] / r_and_d[i] - 1)
+        except:
+            r_and_d_growth.append(0)
+
+    # first element is the growth between most year and the year before that
+    r_and_d_growth.reverse()
+
+    # last element does not amortize this year
+    r_and_d_amortization_cy = [sum(i * 1 / r_and_d_amortization_years for i in r_and_d[:-1])]
+
+    # first element is fully amortized after this year
+    r_and_d_unamortized = [sum(i[0] * i[1] for i in
+                               zip(r_and_d[1:],
+                                   np.linspace(1 / r_and_d_amortization_years, 1, r_and_d_amortization_years)))]
+
+    ebit_r_and_d_adj = [r_and_d[-1] - r_and_d_amortization_cy[0]]
+    tax_benefit = [ebit_r_and_d_adj[0] * tax_rate]
+
+    for i in range(years - 1):
+        g = r_and_d_growth[i]
+        tax_benefit.append(tax_benefit[-1] / (1 + g))
+        ebit_r_and_d_adj.append(ebit_r_and_d_adj[-1] / (1 + g))
+        r_and_d_unamortized.append(r_and_d_unamortized[-1] / (1 + g))
+        r_and_d_amortization_cy.append(r_and_d_amortization_cy[-1] / (1 + g))
+
+    while len(r_and_d) < years:
+        r_and_d.insert(0, 0)
+
+    # reverse order
+    for l in [ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy]:
+        l.reverse()
+
+    # print("r_and_d", r_and_d)
+    # print("r_and_d_amortization_years", r_and_d_amortization_years)
+    # print("r_and_d_growth", r_and_d_growth)
+    # print("r_and_d_amortization_cy", r_and_d_amortization_cy)
+    # print("r_and_d_unamortized", r_and_d_unamortized)
+    # print("ebit_r_and_d_adj", ebit_r_and_d_adj)
+    # print("tax_benefit", tax_benefit)
+    return ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy
+
+def get_spread_from_dscr(interest_coverage_ratio, damodaran_bond_spread):
+    spread = damodaran_bond_spread[(interest_coverage_ratio >= damodaran_bond_spread["greater_than"]) &
+                                   (interest_coverage_ratio < damodaran_bond_spread["less_than"])].iloc[0]
+    return float(spread["spread"])
+
+def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread, riskfree, country_default_spread,
+                      leases, last_year_leases, tax_rate, revenue_growth):
+
+    int_exp_op_adj = 0
+    ttm_ebit_op_adj = 0
+    debt_adj = [0]
+    interest_coverage_ratio = 12.5
+    company_default_spread = -1
+    done = False
+
+    # CYCLE
+    while not done:
+
+        helper_interest_expense_adj = ttm_interest_expense + int_exp_op_adj
+        helper_ebit_adj = ttm_ebit_adj + ttm_ebit_op_adj
+
+        try:
+            if helper_interest_expense_adj > 0:
+                interest_coverage_ratio = helper_ebit_adj / helper_interest_expense_adj
+        except:
+            pass
+
+        spread = get_spread_from_dscr(interest_coverage_ratio, damodaran_bond_spread)
+
+        if spread == company_default_spread:
+            done = True
+
+        else:
+            company_default_spread = spread
+            cost_of_debt = riskfree + country_default_spread + company_default_spread
+            pv_leases = []
+            for i in range(1, len(leases)):
+                pv_leases.append(leases[i] / (1 + cost_of_debt) ** i)
+
+            debt_adj = sum(pv_leases)
+            if last_year_leases > 0:
+                op_leases_depreciation = debt_adj / last_year_leases
+            else:
+                op_leases_depreciation = 0
+
+            # update helper_ebit
+            ttm_ebit_op_adj = leases[0] - op_leases_depreciation
+
+            # update helper_interest
+            int_exp_op_adj = leases[0] * (1 - 1 / (1 + cost_of_debt))
+
+    ebit_op_adj = [ttm_ebit_op_adj]
+    tax_benefit_op = [ebit_op_adj[0] * tax_rate]
+    debt_adj = [debt_adj]
+
+    # first element is the growth between most year and the year before that
+    revenue_growth.reverse()
+
+    for g in revenue_growth:
+        tax_benefit_op.append(tax_benefit_op[-1] / (1 + g))
+        ebit_op_adj.append(ebit_op_adj[-1] / (1 + g))
+        debt_adj.append(debt_adj[-1] / (1 + g))
+
+    # restore revenue_growth
+    revenue_growth.reverse()
+
+    # reverse order
+    for l in [tax_benefit_op, ebit_op_adj, debt_adj]:
+        l.reverse()
+
+    # print()
+    # print("leases", leases)
+    # print("cost of debt", cost_of_debt)
+    # print("pv_leases", pv_leases)
+    # print("ttm_ebit_op_adj", ttm_ebit_op_adj)
+    # print("tax_benefit_op", tax_benefit_op)
+    # print("debt_adj", debt_adj)
+    # print("years dep", last_year_leases)
+    # print("depreciation", op_leases_depreciation)
+    # print("helper_ebit_adj", helper_ebit_adj)
+    # print("helper_interest_expense_adj", helper_interest_expense_adj)
+
+    return ebit_op_adj, int_exp_op_adj, debt_adj, tax_benefit_op, company_default_spread
+
+def get_growth_ttm(ttm_ebit_after_tax, ttm_net_income_adj, mr_equity_adj, mr_debt_adj, mr_cash_and_securities,
                  reinvestment, ttm_dividends, industry_payout):
 
     try:
-        roc_last = (ebit_adj * (1 - tax_rate)) / (debt_bv_adj + equity_bv_adj - mr_cash - mr_securities)
+        roc_last = ttm_ebit_after_tax / (mr_debt_adj + mr_equity_adj - mr_cash_and_securities)
     except:
         roc_last = 0
 
     try:
-        reinvestment_last = reinvestment[-1] / (ebit_adj * (1 - tax_rate))
+        reinvestment_last = reinvestment[-1] / ttm_ebit_after_tax
     except:
         reinvestment_last = 0
 
@@ -86,18 +316,43 @@ def get_ttm_info(ebit_adj, ttm_net_income, equity_bv_adj, tax_rate, debt_bv_adj,
     growth_last = roc_last * reinvestment_last
 
     try:
-        roe_last = ttm_net_income / equity_bv_adj
+        roe_last = ttm_net_income_adj / mr_equity_adj
     except:
         roe_last = 0
 
     try:
-        reinvestment_eps_last = 1 - ttm_dividends / ttm_net_income
+        reinvestment_eps_last = 1 - ttm_dividends / ttm_net_income_adj
     except:
         reinvestment_eps_last = 0
 
     growth_eps_last = roe_last * reinvestment_eps_last
 
-    return ebit_adj, equity_bv_adj, roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last
+    return roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last
+
+def get_roe_roc(equity_bv_adj, debt_bv_adj, cash_and_securities, ebit_after_tax, net_income_adj):
+    roc = []
+    roe = []
+    avg_equity = sum(equity_bv_adj) / len(equity_bv_adj)
+    for i in range(len(equity_bv_adj)):
+
+        invested_capital = debt_bv_adj[i] + equity_bv_adj[i] - cash_and_securities[i]
+        if invested_capital <= 0:
+            roc.append(0)
+        else:
+            try:
+                roc.append(ebit_after_tax[i] / invested_capital)
+            except:
+                roc.append(0)
+
+        if equity_bv_adj[i] > 0:
+            eq = equity_bv_adj[i]
+        else:
+            eq = avg_equity
+        try:
+            roe.append(net_income_adj[i] / eq)
+        except:
+            roe.append(0)
+    return roe, roc
 
 def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, riskfree,
                     unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity):
@@ -199,31 +454,40 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
     target_cost_of_capital = target_cost_of_debt * (1-tax_rate) * target_debt_equity / (target_debt_equity + 1) + \
                              target_cost_of_equity * 1 / (1 + target_debt_equity)
 
-    return cagr, riskfree, target_levered_beta, \
-           target_cost_of_equity, target_cost_of_debt, target_cost_of_capital
+    return cagr, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital
 
-def get_normalized_info(revenue, ebit, delta_revenue, reinvestment, target_sales_capital,
-                        ebit_after_tax, industry_payout, cagr, net_income, roe, dividends, eps, roc, ebit_adj, ttm_ebit):
+def get_normalized_info(revenue, ebit_adj, revenue_delta, reinvestment, target_sales_capital,
+                        ebit_after_tax, industry_payout, cagr, net_income_adj, roe, dividends, eps_adj, roc):
 
-    revenue_5y = sum(i[0] * i[1] for i in zip(revenue, [1, 2, 4, 8, 16])) / 31
-    ebit_5y = sum(i[0] * i[1] for i in zip(ebit, [1, 2, 4, 8, 16])) / 31 * ebit_adj / ttm_ebit
+    weights = [2**x for x in range(len(revenue))]
+    sum_weights = sum(weights)
+    revenue_5y = sum(i[0] * i[1] for i in zip(revenue, weights)) / sum_weights
+    ebit_5y = sum(i[0] * i[1] for i in zip(ebit_adj, weights)) / sum_weights
 
     try:
         operating_margin_5y = ebit_5y / revenue_5y
     except:
         operating_margin_5y = 0
 
+    # print("## SALES CAPITAL ##")
+    # print(revenue_delta)
+    # print(sum(revenue_delta))
+    # print(reinvestment)
+    # print(sum(reinvestment))
+    # print(sum(revenue_delta) / sum(reinvestment))
+    # print("target", target_sales_capital)
+
     try:
-        sales_capital_5y = sum(delta_revenue) / sum(reinvestment)
+        sales_capital_5y = sum(revenue_delta) / sum(reinvestment)
         if sales_capital_5y <= 0:
             sales_capital_5y = target_sales_capital
     except:
         sales_capital_5y = target_sales_capital
 
-    roc_5y = sum(i[0] * i[1] for i in zip(roc, [1, 2, 4, 8, 16])) / 31
+    roc_5y = sum(i[0] * i[1] for i in zip(roc, weights)) / sum_weights
 
     try:
-        reinvestment_5y = sum(reinvestment) / sum(ebit_after_tax[1:])
+        reinvestment_5y = sum(reinvestment) / sum(ebit_after_tax)
         if reinvestment_5y <= 0:
             reinvestment_5y = 1 - industry_payout
     except:
@@ -234,11 +498,11 @@ def get_normalized_info(revenue, ebit, delta_revenue, reinvestment, target_sales
     except:
         growth_5y = cagr
 
-    net_income_5y = sum(i[0] * i[1] for i in zip(net_income, [1, 2, 4, 8, 16])) / 31
-    roe_5y = sum(i[0] * i[1] for i in zip(roe, [1, 2, 4, 8, 16])) / 31
+    net_income_5y = sum(i[0] * i[1] for i in zip(net_income_adj, weights)) / sum_weights
+    roe_5y = sum(i[0] * i[1] for i in zip(roe, weights)) / sum_weights
 
     try:
-        reinvestment_eps_5y = 1 - sum(dividends) / sum(eps)
+        reinvestment_eps_5y = 1 - sum(dividends) / sum(eps_adj)
     except:
         reinvestment_eps_5y = reinvestment_5y
     growth_eps_5y = roe_5y * reinvestment_eps_5y
@@ -246,17 +510,21 @@ def get_normalized_info(revenue, ebit, delta_revenue, reinvestment, target_sales
     return revenue_5y, ebit_5y, operating_margin_5y, sales_capital_5y, roc_5y, reinvestment_5y, growth_5y, \
            net_income_5y, roe_5y, reinvestment_eps_5y, growth_eps_5y
 
-def get_dividends_info(eps, dividends):
-    eps_5y = sum(i[0] * i[1] for i in zip(eps, [1, 2, 4, 8, 16])) / 31
+def get_dividends_info(eps_adj, dividends):
+
+    weights = [2 ** x for x in range(len(eps_adj))]
+    sum_weights = sum(weights)
+
+    eps_5y = sum(i[0] * i[1] for i in zip(eps_adj, weights)) / sum_weights
     try:
-        payout_5y = sum(dividends) / sum(eps)
+        payout_5y = sum(dividends) / sum(eps_adj)
     except:
         payout_5y = 0
     if payout_5y < 0:
         payout_5y = 0
     return eps_5y, payout_5y
 
-def get_final_info(ttm_interest_expense, riskfree, cost_of_debt, shares, debt_bv_adj, unlevered_beta,
+def get_final_info(ttm_interest_expense_adj, riskfree, cost_of_debt, shares, mr_debt_adj, unlevered_beta,
                    tax_rate, final_erp, company_default_spread, price_per_share, fx_rate):
 
     survival_prob = (1 - company_default_spread) ** 10
@@ -265,7 +533,7 @@ def get_final_info(ttm_interest_expense, riskfree, cost_of_debt, shares, debt_bv
     if fx_rate is not None:
         equity_mkt /= fx_rate
 
-    debt_mkt = ttm_interest_expense * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + debt_bv_adj / (
+    debt_mkt = ttm_interest_expense_adj * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt_adj / (
                 1 + cost_of_debt) ** 6
 
     try:
@@ -283,7 +551,7 @@ def get_final_info(ttm_interest_expense, riskfree, cost_of_debt, shares, debt_bv
     debt_weight = 1 - equity_weight
     cost_of_capital = cost_of_equity * equity_weight + cost_of_debt * (1 - tax_rate) * debt_weight
 
-    return survival_prob, cost_of_debt, equity_mkt, debt_mkt, debt_equity, \
+    return survival_prob, equity_mkt, debt_mkt, debt_equity, \
            levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital
 
 def calculate_liquidation_value(cash, receivables, inventory, securities, other_current_assets, ppe,
@@ -343,7 +611,7 @@ GROWTH_NORM = "GROWTH_NORM"
 
 def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_5y, riskfree,
                         industry_payout, cost_of_equity, target_cost_of_equity,
-                        growth_eps_last, eps_5y, payout_5y, ttm_eps, reinvestment_eps_last, fx_rate, debug=True, recession=False):
+                        growth_eps_last, eps_5y, payout_5y, ttm_eps_adj, reinvestment_eps_last, fx_rate, debug=True, recession=False):
 
     final_growth = riskfree
 
@@ -376,7 +644,7 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
         growth_history[3:6] = 0
 
     if earnings_type == EARNINGS_TTM:
-        initial_eps = ttm_eps
+        initial_eps = ttm_eps_adj
     else:
         initial_eps = eps_5y
 
@@ -462,10 +730,10 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
 
     return stock_value
 
-def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit_adj, target_operating_margin, tax_benefits,
+def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_ebit_adj, target_operating_margin, tax_benefits,
                    tax_rate, sales_capital_5y, target_sales_capital, debt_weight, target_debt_equity, unlevered_beta,
                    final_erp, cost_of_debt, target_cost_of_debt, mr_cash, mr_securities, debt_mkt, minority_interest, survival_prob,
-                   share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=True, recession=False):
+                   share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=True, recession=False):
 
     # earnings ttm + growth fixed
 
@@ -500,7 +768,7 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit
         if ttm_revenue == 0:
             initial_margin = 0
         else:
-            initial_margin = ebit_adj / ttm_revenue
+            initial_margin = ttm_ebit_adj / ttm_revenue
     else:
         if revenue_5y == 0:
             initial_margin = 0
@@ -594,7 +862,7 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ebit
 
     firm_value = sum(present_value_history[:-1]) + terminal_value_pv + mr_cash + mr_securities + mr_property
 
-    equity_value = firm_value - debt_mkt - minority_interest
+    equity_value = firm_value - debt_mkt - minority_interest - mr_sbc
 
     try:
         stock_value_price_curr = (equity_value * survival_prob + ko_proceeds * (1-survival_prob)) / share_issued

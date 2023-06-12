@@ -275,7 +275,6 @@ def get_generic_info(ticker):
         'Staffing & Employment Services': 'Business & Consumer Services',
         'Staffing & Outsourcing Services': 'Business & Consumer Services',
         'Entertainment - Diversified': 'Entertainment'}
-
     ticker_info = get_df_from_table("yahoo_equity_tickers", f"where symbol = '{ticker}'", most_recent=True).iloc[0]
     ticker_additional_info = get_df_from_table("tickers_additional_info", f"where symbol = '{ticker}'").iloc[0]
     company_name = ticker_info["long_name"]
@@ -286,6 +285,8 @@ def get_generic_info(ticker):
     try:
         industry = industry_translation[industry]
     except:
+        print(f"\n#######\nCould not find industry: {industry} mapping. "
+              f"Check industry_translation dictionary.\n#######\n")
         industry = "Total Market"
 
     return company_name, country, industry, region

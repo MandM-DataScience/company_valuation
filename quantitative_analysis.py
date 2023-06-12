@@ -5,8 +5,9 @@ import numpy as np
 import mongodb
 from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK
 from postgresql import get_df_from_table, get_generic_info, currency_bond_yield, get_industry_data
-from valuation_helper import convert_currencies, get_ttm_info, get_target_info, get_normalized_info, get_dividends_info, \
-    get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation
+from valuation_helper import convert_currencies, get_target_info, get_normalized_info, get_dividends_info, \
+    get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation, \
+    r_and_d_amortization, get_growth_ttm, capitalize_rd, debtize_op_leases, get_roe_roc, get_spread_from_dscr
 from yahoo_finance import get_current_price_from_yahoo
 
 EARNINGS_TTM = "EARNINGS_TTM"
@@ -1475,7 +1476,7 @@ def extract_operating_leases(doc):
         "OperatingLeaseCost",
         "OperatingLeaseExpense",
     ]
-    mr_op_leases_expense, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_expense, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     # Next year expenses
     measures = [
@@ -1483,7 +1484,7 @@ def extract_operating_leases(doc):
         "OperatingLeasesFutureMinimumPaymentsDueCurrent",
         "LesseeOperatingLeaseLiabilityPaymentsDueNextRollingTwelveMonths",
     ]
-    mr_op_leases_next_year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_next_year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     # Next 2year expenses
     measures = [
@@ -1491,7 +1492,7 @@ def extract_operating_leases(doc):
         "OperatingLeasesFutureMinimumPaymentsDueInTwoYears",
         "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearTwo",
     ]
-    mr_op_leases_next_2year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_next_2year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     # Next 3year expenses
     measures = [
@@ -1499,7 +1500,7 @@ def extract_operating_leases(doc):
         "OperatingLeasesFutureMinimumPaymentsDueInThreeYears",
         "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearThree",
     ]
-    mr_op_leases_next_3year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_next_3year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     # Next 4year expenses
     measures = [
@@ -1507,7 +1508,7 @@ def extract_operating_leases(doc):
         "OperatingLeasesFutureMinimumPaymentsDueInFourYears",
         "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearFour",
     ]
-    mr_op_leases_next_4year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_next_4year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     # Next 5year expenses
     measures = [
@@ -1515,7 +1516,7 @@ def extract_operating_leases(doc):
         "OperatingLeasesFutureMinimumPaymentsDueInFiveYears",
         "LesseeOperatingLeaseLiabilityPaymentsDueInRollingYearFive",
     ]
-    mr_op_leases_next_5year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_next_5year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     # After 5year expenses
     measures = [
@@ -1523,7 +1524,7 @@ def extract_operating_leases(doc):
         "OperatingLeasesFutureMinimumPaymentsDueThereafter",
         "LesseeOperatingLeaseLiabilityPaymentsDueAfterRollingYearFive",
     ]
-    mr_op_leases_after_5year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=True)
+    mr_op_leases_after_5year, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
 
     return {
         "mr_op_leases_expense": mr_op_leases_expense,
@@ -1533,6 +1534,43 @@ def extract_operating_leases(doc):
         "mr_op_leases_next_4year": mr_op_leases_next_4year,
         "mr_op_leases_next_5year": mr_op_leases_next_5year,
         "mr_op_leases_after_5year": mr_op_leases_after_5year
+    }
+
+def extract_options(doc):
+    """
+    Extract options measures from company financial document.
+    :param doc: company financial document
+    :return: dict with most recent measures
+    """
+
+    # Last year expenses
+    measures = [
+        "EmployeeServiceShareBasedCompensationNonvestedAwardsTotalCompensationCostNotYetRecognized",
+    ]
+    mr_sbc, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
+
+    measures = [
+        # options
+        "EmployeeServiceShareBasedCompensationNonvestedAwardsTotalCompensationCostNotYetRecognizedStockOptions",
+        "ShareBasedCompensationArrangementByShareBasedPaymentAwardOptionsOutstandingIntrinsicValue",
+        "ShareBasedCompensationArrangementByShareBasedPaymentAwardOptionsVestedAndExpectedToVestOutstandingAggregateIntrinsicValue",
+        "ShareBasedCompensationArrangementByShareBasedPaymentAwardOptionsVestedAndExpectedToVestExercisableAggregateIntrinsicValue",
+        "SharebasedCompensationArrangementBySharebasedPaymentAwardOptionsExercisableIntrinsicValue1",
+    ]
+    mr_sbc_options, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
+
+    measures = [
+        # non-options
+        "EmployeeServiceShareBasedCompensationNonvestedAwardsTotalCompensationCostNotYetRecognizedShareBasedAwardsOtherThanOptions",
+        "SharebasedCompensationArrangementBySharebasedPaymentAwardEquityInstrumentsOtherThanOptionsAggregateIntrinsicValueOutstanding",
+        "SharebasedCompensationArrangementBySharebasedPaymentAwardEquityInstrumentsOtherThanOptionsAggregateIntrinsicValueNonvested",
+    ]
+    mr_sbc_non_options, _, _ = get_values_from_measures(doc, measures, get_ttm=False, get_yearly=False, debug=False)
+
+    merge_subsets_most_recent(mr_sbc, [mr_sbc_options, mr_sbc_non_options])
+
+    return {
+        "mr_sbc": mr_sbc,
     }
 
 def extract_company_financial_information(cik):
@@ -1556,6 +1594,7 @@ def extract_company_financial_information(cik):
     equity = extract_balance_sheet_equity(doc, last_annual_report_date)
     cashflow_statement_measures = extract_cashflow_statement(doc)
     leases = extract_operating_leases(doc)
+    options = extract_options(doc)
 
     return {
         **shares,
@@ -1566,7 +1605,8 @@ def extract_company_financial_information(cik):
         **liabilities,
         **equity,
         **cashflow_statement_measures,
-        **leases
+        **leases,
+        **options
     }
 
 def get_selected_years(data, key, start, end):
@@ -1613,9 +1653,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     (OK if company is underpriced, NI if company is correctly priced, KO is company is overpriced)
     """
 
-    # TODO Implement R&D Adjustments
-    # TODO Implement Op. Leases Adjustments
-
     data = extract_company_financial_information(cik)
     print(data)
 
@@ -1639,6 +1676,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
     country_stats = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
     damodaran_bond_spread = get_df_from_table("damodaran_bond_spread", most_recent=True)
+    damodaran_bond_spread["greater_than"] = pd.to_numeric(damodaran_bond_spread["greater_than"])
+    damodaran_bond_spread["less_than"] = pd.to_numeric(damodaran_bond_spread["less_than"])
 
     tax_rate = float(country_stats["tax_rate"])
 
@@ -1648,6 +1687,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     final_erp = float(erp) + country_risk_premium
 
     currency_10y_bond = currency_bond_yield(country, alpha_3_code, country_default_spread)
+    riskfree = currency_10y_bond - country_default_spread
 
     if debug:
         print("===== GENERAL INFORMATION =====\n")
@@ -1679,12 +1719,11 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     # they are different
     if db_curr != db_financial_curr:
-        fx_rate = convert_currencies(db_curr, db_financial_curr, debug)
+        fx_rate = convert_currencies(db_curr, db_financial_curr)
 
     fx_rate_financial_USD = 1
     if db_financial_curr != "USD":
-        fx_rate_financial_USD = convert_currencies("USD", db_financial_curr, debug)
-
+        fx_rate_financial_USD = convert_currencies("USD", db_financial_curr)
 
     ttm_revenue = data["ttm_revenue"]["value"]
     ttm_ebit = data["ttm_ebit"]["value"]
@@ -1695,7 +1734,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     mr_securities = data["mr_securities"]["value"]
     mr_debt = data["mr_debt"]["value"]
     mr_equity = data["mr_equity"]["value"]
-    revenue = get_selected_years(data, "revenue", initial_year, final_year)
     ebit = get_selected_years(data, "ebit", initial_year, final_year)
     net_income = get_selected_years(data, "net_income", initial_year, final_year)
     dividends = get_selected_years(data, "dividends", initial_year, final_year)
@@ -1705,10 +1743,85 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     cash = get_selected_years(data, "cash", initial_year, final_year)
     securities = get_selected_years(data, "securities", initial_year, final_year)
     debt_bv = get_selected_years(data, "debt", initial_year, final_year)
-    r_and_d = get_selected_years(data, "rd", initial_year, final_year)
+
+    revenue = get_selected_years(data, "revenue", initial_year-1, final_year)
+    revenue_growth = []
+    revenue_delta = []
+    for i in range(len(revenue) - 1):
+        revenue_delta.append(revenue[i + 1] - revenue[i])
+        try:
+            revenue_growth.append(revenue[i + 1] / revenue[i] - 1)
+        except:
+            revenue_growth.append(0)
+
+    # drop 1st element we don't need
+    revenue = revenue[1:]
+    revenue_growth = revenue_growth[1:]
+
+    try:
+        r_and_d_amortization_years = r_and_d_amortization[industry]
+    except:
+        print(f"\n#######\nCould not find industry: {industry} mapping. "
+              f"Check r_and_d_amortization dictionary.\n#######\n")
+        r_and_d_amortization_years = 5
+    r_and_d = get_selected_years(data, "rd", final_year - r_and_d_amortization_years, final_year)
+
+    ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy = \
+        capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years)
+
+    ttm_ebit_adj = ttm_ebit + ebit_r_and_d_adj[-1]
+    ebit_adj = [sum(x) for x in zip(ebit, ebit_r_and_d_adj)]
+    ttm_ebit_after_tax = ttm_ebit_adj * (1 - tax_rate) + tax_benefit[-1]
+    ebit_after_tax = [sum(x) for x in zip([x * (1-tax_rate) for x in ebit_adj], tax_benefit)]
+    ttm_net_income_adj = ttm_net_income + ebit_r_and_d_adj[-1]
+    net_income_adj = [sum(x) for x in zip(net_income, ebit_r_and_d_adj)]
+    mr_equity_adj = mr_equity + r_and_d_unamortized[-1]
+    equity_bv_adj = [sum(x) for x in zip(equity_bv, r_and_d_unamortized)]
+    capex_adj = [sum(x) for x in zip(capex, r_and_d[-years:])]
+    depreciation_adj = [sum(x) for x in zip(depreciation, r_and_d_amortization_cy)]
+
+    leases = [
+        data["mr_op_leases_expense"]["value"],
+        data["mr_op_leases_next_year"]["value"],
+        data["mr_op_leases_next_2year"]["value"],
+        data["mr_op_leases_next_3year"]["value"],
+        data["mr_op_leases_next_4year"]["value"],
+        data["mr_op_leases_next_5year"]["value"],
+        data["mr_op_leases_after_5year"]["value"],
+    ]
+
+    last_year_leases = max([i for i, x in enumerate(leases) if x != 0], default=-1)
+
+    if last_year_leases != -1:
+        ebit_op_adj, int_exp_op_adj, debt_adj, tax_benefit_op, company_default_spread = \
+            debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread, riskfree, country_default_spread,
+                          leases, last_year_leases, tax_rate, revenue_growth)
+
+        ttm_ebit_adj += ebit_op_adj[-1]
+        ttm_interest_expense_adj = ttm_interest_expense + int_exp_op_adj
+        mr_debt_adj = mr_debt + debt_adj[-1]
+        ebit_adj = [sum(x) for x in zip(ebit_adj, ebit_op_adj)]
+        debt_bv_adj = [sum(x) for x in zip(debt_bv, debt_adj)]
+        ebit_after_tax = [sum(x) for x in zip(ebit_after_tax, tax_benefit_op)]
+
+        print("tax benefit rd", tax_benefit)
+        print("tax benefit op leas", tax_benefit_op)
+
+    # no leases
+    else:
+        ttm_interest_expense_adj = ttm_interest_expense
+        mr_debt_adj = mr_debt
+        debt_bv_adj = debt_bv
+        company_default_spread = get_spread_from_dscr(12.5, damodaran_bond_spread)
+
+    cost_of_debt = riskfree + country_default_spread + company_default_spread
+
+    mr_cash_and_securities = mr_cash + mr_securities
+    cash_and_securities = [sum(x) for x in zip(cash, securities)]
 
     # consider EPS/dividends as with most recent number of shares (to account for splits and buybacks)
     eps = [x/mr_shares for x in net_income]
+    eps_adj = [x/mr_shares for x in net_income_adj]
     dividends = [x/mr_shares for x in dividends]
 
     # WC = inventory + receivables + other assets - payables - due to affiliates - due to related
@@ -1726,10 +1839,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     working_capital = df["wc"].to_list()
     delta_wc = df["delta_wc"].to_list()
 
-    # print("eps", eps)
-    # print("working_capital", working_capital)
-
-    # print("\n\n")
+    ttm_eps = ttm_net_income / mr_shares
+    ttm_eps_adj = ttm_net_income_adj / mr_shares
 
     if debug:
         print("\n\n")
@@ -1739,126 +1850,54 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("FX Rate:", 1 if fx_rate is None else fx_rate)
         print("FX Rate USD:", fx_rate_financial_USD)
         print("ttm_revenue", ttm_revenue)
-        print("ttm_ebit", ttm_ebit)
-        print("ttm_net_income", ttm_net_income)
+        print("ttm_ebit", ttm_ebit, "=>", ttm_ebit_adj)
+        print("ttm_net_income", ttm_net_income, "=>", ttm_net_income_adj)
         print("ttm_dividends", ttm_dividends)
-        print("ttm_interest_expense", ttm_interest_expense)
+        print("ttm_eps", ttm_eps, "=>", ttm_eps_adj)
+        print("ttm_interest_expense", ttm_interest_expense, "=>", ttm_interest_expense_adj)
         print("minority_interest", mr_original_min_interest, "=>", mr_minority_interest)
-        print("cash&securities", mr_cash + mr_securities)
-        print("BV of debt", mr_debt)
-        print("BV of equity", mr_equity)
+        print("cash&securities", mr_cash_and_securities)
+        print("BV of debt", mr_debt, "=>", mr_debt_adj)
+        print("BV of equity", mr_equity, "=>", mr_equity_adj)
         print("\n\n")
         print("===== Historical Data =====\n")
         print("revenue", revenue)
-        print("ebit", ebit)
-        print("net_income", net_income)
-        print("eps", eps)
+        print("ebit", ebit, "=>", ebit_adj)
+        print("ebit after tax adj", ebit_after_tax)
+        print("net_income", net_income, "=>", net_income_adj)
+        print("eps", eps, "=>", eps_adj)
         print("dividends", dividends)
         print("working_capital", working_capital)
-        print("capex", capex)
-        print("depreciation", depreciation)
-        print("equity_bv", equity_bv)
-        print("cash&securities", [sum(x) for x in zip(cash, securities)])
-        print("debt_bv", debt_bv)
+        print("capex", capex, "=>", capex_adj)
+        print("depreciation", depreciation, "=>", depreciation_adj)
+        print("equity_bv", equity_bv, "=>", equity_bv_adj)
+        print("cash&securities", cash_and_securities)
+        print("debt_bv", debt_bv, "=>", debt_bv_adj)
         print("\n\n")
         print("===== R&D =====\n")
         print("r_and_d", r_and_d)
         print("\n\n")
 
-    ttm_eps = ttm_net_income / mr_shares
-
-    r_and_d_growth = []
-    for i in range(len(r_and_d) - 1):
-        try:
-            r_and_d_growth.append(r_and_d[i + 1] / r_and_d[i] - 1)
-        except:
-            r_and_d_growth.append(0)
-
-    r_and_d_value = sum(i[0] * i[1] for i in zip(r_and_d, [0.2, 0.4, 0.6, 0.8, 1]))
-
-    amortization_current_year = sum([i / 5 for i in r_and_d[:-1]])
-    amortization_current_year += r_and_d[0] * (1 - np.mean(r_and_d_growth)) / 5
-
-    ebit_r_and_d_adj = r_and_d[-1] - amortization_current_year - r_and_d[-1] * 0.8 * tax_rate
-
     reinvestment = []
     for i in range(len(capex)):
-        reinvestment.append(capex[i] + delta_wc[i] - depreciation[i])
-
-    leases = [
-        data["mr_op_leases_expense"]["value"],
-        data["mr_op_leases_next_year"]["value"],
-        data["mr_op_leases_next_2year"]["value"],
-        data["mr_op_leases_next_3year"]["value"],
-        data["mr_op_leases_next_4year"]["value"],
-        data["mr_op_leases_next_5year"]["value"],
-        data["mr_op_leases_after_5year"]["value"],
-    ]
-
-    print("LEASES", leases)
-
-    return
+        reinvestment.append(capex_adj[i] + delta_wc[i] - depreciation_adj[i])
 
     # ebit_adj = ttm_ebit + ebit_r_and_d_adj + leases_adj
     # equity_bv_adj = mr_equity + r_and_d_value
     # debt_bv_adj = mr_debt + leases_value
 
-    interest_coverage_ratio = 12.5
-
-    try:
-        if ttm_interest_expense > 0:
-            interest_coverage_ratio = ebit_adj / ttm_interest_expense
-    except:
-        pass
-
-    damodaran_bond_spread["greater_than"] = pd.to_numeric(damodaran_bond_spread["greater_than"])
-    damodaran_bond_spread["less_than"] = pd.to_numeric(damodaran_bond_spread["less_than"])
-    spread = damodaran_bond_spread[interest_coverage_ratio >= damodaran_bond_spread["greater_than"]]
-    spread = spread[interest_coverage_ratio < spread["less_than"]]
-    spread = spread.iloc[0]
-    company_default_spread = float(spread["spread"])
-
-    riskfree = currency_10y_bond - country_default_spread
-    cost_of_debt = riskfree + country_default_spread + company_default_spread
-
     roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last = \
-        get_ttm_info(ebit_adj, ttm_net_income, equity_bv_adj, tax_rate, debt_bv_adj, mr_cash, mr_securities,
-                 reinvestment, ttm_dividends, industry_payout)
+        get_growth_ttm(ttm_ebit_after_tax, ttm_net_income_adj, mr_equity_adj, mr_debt_adj, mr_cash_and_securities,
+                       reinvestment, ttm_dividends, industry_payout)
 
-    ebit_after_tax = [x*(1-tax_rate) for x in ebit]
+    roe, roc = get_roe_roc(equity_bv_adj, debt_bv_adj, cash_and_securities, ebit_after_tax, net_income_adj)
 
-    roc = []
-    roe = []
-    avg_equity = sum(equity_bv) / len(equity_bv)
-    for i in range(len(equity_bv)):
-
-        invested_capital = debt_bv[i] + equity_bv[i] - cash[i] - securities[i]
-        if invested_capital <= 0:
-            roc.append(0)
-        else:
-            try:
-                roc.append(ebit_after_tax[i] / invested_capital)
-            except:
-                roc.append(0)
-
-        if equity_bv[i] > 0:
-            eq = equity_bv[i]
-        else:
-            eq = avg_equity
-        try:
-            roe.append(net_income[i] / eq)
-        except:
-            roe.append(0)
-
-    operating_margin = []
-    delta_revenue = []
-    revenue_helper = get_selected_years(data, "revenue", initial_year - 1, final_year)
-    for i in range(1, len(revenue_helper)):
-        delta_revenue.append(revenue_helper[i] - revenue_helper[i - 1])
-        try:
-            operating_margin.append(ebit[i] / revenue[i])
-        except:
-            operating_margin.append(0)
+    # operating_margin = []
+    # for i in range(1, len(revenue)):
+    #     try:
+    #         operating_margin.append(ebit_adj[i] / revenue[i])
+    #     except:
+    #         operating_margin.append(0)
 
     cagr, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital = \
         get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, riskfree,
@@ -1866,14 +1905,14 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     revenue_5y, ebit_5y, operating_margin_5y, sales_capital_5y, roc_5y, reinvestment_5y, growth_5y, \
     net_income_5y, roe_5y, reinvestment_eps_5y, growth_eps_5y = \
-        get_normalized_info(revenue, ebit, delta_revenue, reinvestment, target_sales_capital,
-                        ebit_after_tax, industry_payout, cagr, net_income, roe, dividends, eps, roc, ebit_adj, ttm_ebit)
+        get_normalized_info(revenue, ebit_adj, revenue_delta, reinvestment, target_sales_capital,
+                        ebit_after_tax, industry_payout, cagr, net_income_adj, roe, dividends, eps_adj, roc)
 
-    eps_5y, payout_5y = get_dividends_info(eps, dividends)
+    eps_5y, payout_5y = get_dividends_info(eps_adj, dividends)
 
-    survival_prob, cost_of_debt, equity_mkt, debt_mkt, debt_equity, \
+    survival_prob, equity_mkt, debt_mkt, debt_equity, \
     levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital = \
-        get_final_info(ttm_interest_expense, riskfree, cost_of_debt, mr_shares, debt_bv_adj, unlevered_beta,
+        get_final_info(ttm_interest_expense_adj, riskfree, cost_of_debt, mr_shares, mr_debt_adj, unlevered_beta,
                        tax_rate, final_erp, company_default_spread, price_per_share, fx_rate)
 
     mr_receivables = data["mr_receivables"]["value"]
@@ -1887,7 +1926,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         liquidation_value = calculate_liquidation_value(mr_cash, mr_receivables, mr_inventory, mr_securities,
                                                         mr_other_current_assets,
                                                         mr_ppe, mr_equity_investments, mr_total_liabilities, equity_mkt,
-                                                        debt_mkt, mr_debt, mr_minority_interest, debug=debug)
+                                                        debt_mkt, mr_debt_adj, mr_minority_interest, debug=debug)
     except:
         print(traceback.format_exc())
         liquidation_value = 0
@@ -1901,7 +1940,9 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("roc_last", round(roc_last,4))
         print("reinvestment_last", round(reinvestment_last,4))
         print("growth_last", round(growth_last,4))
+        print("ROC history", roc)
         print("roc_5y", round(roc_5y,4))
+        print("Reinvestment history", reinvestment)
         print("reinvestment_5y", round(reinvestment_5y,4))
         print("growth_5y", round(growth_5y,4))
         print("revenue_5y", revenue_5y)
@@ -1934,9 +1975,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("equity_mkt", round(equity_mkt,2))
         print("debt_mkt", round(debt_mkt,2))
         print("debt_equity", round(debt_equity,4))
-        print("equity_bv_adj", round(equity_bv_adj,2))
-        print("ebit_adj", round(ebit_adj,2))
-        print("interest_coverage_ratio", round(interest_coverage_ratio,2))
+        print("equity_bv_adj", round(mr_equity_adj,2))
+        print("ebit_adj", round(ttm_ebit_adj,2))
         print("company_default_spread", round(company_default_spread,4))
         print("survival_prob", round(survival_prob,4))
         print("liquidation value", round(liquidation_value, 2))
@@ -1953,80 +1993,81 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     mr_tax_benefits = data["mr_tax_benefits"]["value"]
     mr_property = data["mr_investment_property"]["value"]
+    mr_sbc = data["mr_sbc"]["value"]
 
     stock_value_div_ttm_fixed = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
-                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug)
     stock_value_div_norm_fixed = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                      riskfree, industry_payout, cost_of_equity,
-                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug)
     stock_value_div_ttm_ttm = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                   industry_payout, cost_of_equity, target_cost_of_equity,
-                                                  growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                  growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug)
     stock_value_div_norm_norm = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                     industry_payout, cost_of_equity,
-                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug)
     stock_value_div_ttm_fixed_recession = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
-                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug, recession=True)
     stock_value_div_norm_fixed_recession = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                      riskfree, industry_payout, cost_of_equity,
-                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug, recession=True)
     stock_value_div_ttm_ttm_recession = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                   industry_payout, cost_of_equity, target_cost_of_equity,
-                                                  growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                  growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug, recession=True)
     stock_value_div_norm_norm_recession = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                     industry_payout, cost_of_equity,
-                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps,
+                                                    target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
                                                     reinvestment_eps_last, fx_rate, debug=debug, recession=True)
 
-    stock_value_fcff_ttm_fixed = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+    stock_value_fcff_ttm_fixed = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                 target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                 debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                 target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug)
-    stock_value_fcff_norm_fixed = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+    stock_value_fcff_norm_fixed = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                  target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                  debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                  target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                 liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug)
-    stock_value_fcff_ttm_ttm = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                 liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+    stock_value_fcff_ttm_ttm = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                               target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                               debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                               target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                              liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug)
-    stock_value_fcff_norm_norm = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                              liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+    stock_value_fcff_norm_norm = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                 target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                 debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                 target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug)
-    stock_value_fcff_ttm_fixed_recession = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+    stock_value_fcff_ttm_fixed_recession = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                           target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                           debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                           target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug, recession=True)
-    stock_value_fcff_norm_fixed_recession = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+    stock_value_fcff_norm_fixed_recession = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                            target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                            debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                            target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                           liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug, recession=True)
-    stock_value_fcff_ttm_ttm_recession = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                           liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+    stock_value_fcff_ttm_ttm_recession = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                         target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                         debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                         target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                        liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug, recession=True)
-    stock_value_fcff_norm_norm_recession = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ebit_adj,
+                                                        liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+    stock_value_fcff_norm_norm_recession = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                           target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                           debt_weight, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                           target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, debug=debug, recession=True)
+                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
 
     fcff_values_list = [stock_value_fcff_ttm_fixed, stock_value_fcff_norm_fixed, stock_value_fcff_ttm_ttm,
                        stock_value_fcff_norm_norm]
