@@ -1,8 +1,17 @@
 import json
 import os
+import time
+from datetime import datetime
+
+from bs4 import BeautifulSoup
+from selenium import webdriver
+
+import mongodb
+from edgar_utils import company_from_cik, AAPL_CIK, download_submissions_documents, download_all_cik_submissions
 
 
 def parse_10_K(soup):
+
     section = None
     next_section = False
     result = {}
@@ -208,61 +217,94 @@ def test_parse_document():
 
 
 def get_all_sections(soup):
+
     import re
     tables = soup.body.findAll("table")
     chosen_table = None
     max_table = 0
     section_strings = []
+
     for t in tables:
         count = 0
+
         for s in list_items_strings:
             r = t.find(string=re.compile(f'{s}', re.IGNORECASE))
             if r is not None:
                 count += 1
+
         if count > max_table:
             chosen_table = t
             max_table = count
 
-    if chosen_table:
+    if chosen_table is not None:
         hrefs = []
         for a in chosen_table.findAll("a"):
             href = a['href']
             if href not in hrefs:
                 hrefs.append(href)
+
+        print(hrefs)
+
         hrefs = [h[1:] for h in hrefs]
+
         for h in hrefs:
             h_tag = soup.find(id=h)
+
             while len(h_tag.text.strip()) <= 0:
                 h_tag = h_tag.parent
+
             section_strings.append(h_tag.text.strip())
 
     return section_strings
 
 
 def parse_v2():
+
     from bs4 import BeautifulSoup, Tag
 
     import mongodb
     import re
     docs = mongodb.get_collection_documents("documents")
+
     for doc in docs:
+
+        url = doc["_id"]
+        cik = doc["cik"]
+        form_type = doc["form_type"]
+        filing_date = doc["filing_date"]
         html = doc["html"]
-        if doc['_id'] != "https://www.sec.gov/Archives/edgar/data/1672688/000162828023020162/absi-20221231.htm":
+
+        # if doc['_id'] != "https://www.sec.gov/Archives/edgar/data/1672688/000162828023020162/absi-20221231.htm":
+        #     continue
+
+        if form_type != "10-K":
             continue
-        print(doc['_id'])
+
+        company_info = company_from_cik(cik)
+        print(company_info)
+        print(form_type)
+        print(url)
+
         # with open(f"{doc['cik']}.html", "w+", encoding="utf-8") as f:
         #     f.write(html)
 
         soup = BeautifulSoup(html, features="html.parser")
+
         # href_in_table = find_summary_table(soup)
         # print(doc["cik"], len(href_in_table))
+
         if soup.body is None:
             continue
+
         all_text = soup.body.text.strip()
 
         sections = get_all_sections(soup)
-        print(sections)
+
+
+        # print(sections)
+
         min_index = 0
+
         for i in range(1, len(sections)+1):
 
             # print(f"FROM {sections[i-1]} TO {sections[i]}")
@@ -273,16 +315,151 @@ def parse_v2():
                 end = all_text.find(sections[i], start)
 
             min_index = end
-            print(f"{start} -> {end} [{len(all_text[start:end])}] \t {sections[i-1]}")
+            # print(f"{start} -> {end} [{len(all_text[start:end])}] \t {sections[i-1]}")
 
             # print(start, end)
             # print(all_text[start:end])
             # print()
             # print()
             # print()
-        # input("GO ON!")
 
+        # input("GO ON!")
+        return
+
+
+def parse_segments():
+    done_ciks = []
+
+    docs = mongodb.get_collection_documents("documents")
+    for doc in docs:
+
+        if "aapl" not in doc["_id"]:
+            continue
+
+        if doc["form_type"] != "10-K":
+            continue
+
+        cik = doc["_id"].split("data/")[1].split("/")[0]
+
+        if cik in done_ciks:
+            continue
+        else:
+            done_ciks.append(cik)
+
+        print(f"######## {doc['_id']} ##########\n")
+
+        page = doc["html"]
+        soap = BeautifulSoup(page, features="html.parser")
+
+        ix_resources = soap.find("ix:resources")
+        contexts = ix_resources.findAll("xbrli:context")
+
+        axis = [
+            "srt:ProductOrServiceAxis",
+            "us-gaap:StatementBusinessSegmentsAxis",
+            "srt:ConsolidationItemsAxis",
+            "srt:StatementGeographicalAxis",
+        ]
+
+        for c in contexts:
+
+            context_id = c["id"]
+            s = c.find("xbrli:segment")
+
+            if s is not None:
+
+                members = s.find_all("xbrldi:explicitmember")
+                if len(members) == 0:
+                    continue
+
+                include = True
+                for m in members:
+                    if m["dimension"] not in axis:
+                        include = False
+                        break
+                if not include:
+                    continue
+
+                try:
+                    period = c.find("xbrli:enddate").text
+                except:
+                    period = c.find("xbrli:instant").text
+                period = datetime.strptime(period, "%Y-%m-%d").date()
+
+                # dimension = "+".join([x["dimension"] for x in members])
+                # value = "+".join([x.text for x in members])
+
+                # if dimension not in result_dict:
+                #     result_dict[dimension] = {}
+                #
+                # if value not in result_dict[dimension] or period > result_dict[dimension][value]["period"]:
+                #         result_dict[dimension][value] = {"period":period,"id":context_id}
+
+                element = soap.find("ix:nonfraction", attrs={"contextref": context_id})
+                if element is None:
+                    continue
+
+                segment = {}
+                for m in members:
+                    segment[m["dimension"]] = m.text
+
+                print(f"{period} - {segment} => {element.text} ({element['name']})")
+
+        return
+
+
+def find_possible_axis():
+
+    axis = []
+
+    docs = mongodb.get_collection_documents("documents")
+    for doc in docs:
+
+        page = doc["html"]
+        soap = BeautifulSoup(page, features="html.parser")
+
+        ix_resources = soap.find("ix:resources")
+
+        if ix_resources is None:
+            continue
+
+        contexts = ix_resources.findAll("xbrli:context")
+
+        for c in contexts:
+            s = c.find("xbrli:segment")
+            if s is not None:
+                try:
+                    ax = [x["dimension"] for x in s.children]
+                    for a in ax:
+                        if a not in axis:
+                            print(a)
+                            axis.append(a)
+                except:
+                    pass
+
+
+
+
+def text_blocks():
+    import pandas as pd
+    doc = mongodb.get_document("financial_data", "0000764065") # clf cik
+
+    for m in doc["facts"]["us-gaap"]:
+        print(m.lower())
+        # if "text" in m.lower():
+        #     print(m)
+
+    # try:
+    #     data = doc["facts"][tax][measure]["units"][unit]
+    # except:
+    #     return None
+
+    # df = pd.DataFrame(data)
 
 if __name__ == '__main__':
+
     # test_parse_document()
-    parse_v2()
+    # parse_v2()
+    # download_submissions_documents("0000764065")
+    parse_segments()
+    # find_possible_axis()

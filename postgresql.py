@@ -9,6 +9,234 @@ from dateutil.relativedelta import relativedelta
 
 from investing_com import get_10y_bond_yield
 
+country_to_region = {
+    "Cyprus": "EU",
+    "Macau": "China",
+    "IsleofMan": "Global",
+    "BritishVirginIslands": "Global",
+    "Greece": "EU",
+    "Cambodia": "emerg",
+    "Malaysia": "emerg",
+    "Bermuda": "emerg",
+    "Canada": "Rest",
+    "UnitedStates": "US",
+    "UnitedArabEmirates": "US",
+    "Japan": "Japan",
+    "Australia": "Rest",
+    "NewZealand": "Rest",
+    "Austria": "EU",
+    "Belgium": "EU",
+    "Denmark": "EU",
+    "Finland": "EU",
+    "France": "EU",
+    "Germany": "EU",
+    "Ireland": "EU",
+    "Italy": "EU",
+    "Luxembourg": "EU",
+    "Netherlands": "EU",
+    "Portugal": "EU",
+    "Spain": "EU",
+    "Sweden": "EU",
+    "Switzerland": "EU",
+    "UnitedKingdom": "EU",
+    "China": "China",
+    "HongKong": "China",
+    "Taiwan": "China",
+    "India": "India",
+    "Argentina": "emerg",
+    "Brazil": "emerg",
+    "Chile": "emerg",
+    "Colombia": "emerg",
+    "Ecuador": "emerg",
+    "Indonesia": "emerg",
+    "Israel": "emerg",
+    "Mexico": "emerg",
+    "Peru": "emerg",
+    "Philippines": "emerg",
+    "Poland": "emerg",
+    "Estonia": "emerg",
+    "Romania": "emerg",
+    "Russia": "emerg",
+    "Latvia": "emerg",
+    "Lithuania": "emerg",
+    "Singapore": "China",
+    "Thailand": "emerg",
+    "Turkey": "emerg",
+    "SouthKorea": "Japan",
+    "SouthAfrica": "emerg",
+    "Iceland": "EU",
+    "Liechtenstein": "EU",
+    "Monaco": "EU",
+    "Norway": "EU",
+    "SaudiArabia": "emerg",
+
+
+    "Africa":"emerg",
+    "Asia":"emerg",
+    "Australia & New Zealand":"Rest",
+    "Caribbean":"emerg",
+    "Central and South America":"emerg",
+    "Eastern Europe & Russia":"emerg",
+    "Middle East":"emerg",
+    "North America":"US",
+    "Western Europe":"EU",
+    "Global":"Global"
+
+}
+industry_translation = {
+    'Advertising Agencies': 'Advertising',
+    'Aerospace & Defense': 'Aerospace/Defense',
+    'Airlines': 'Air Transport',
+    'Airports & Air Services': 'Air Transport',
+    'Apparel Manufacturing': 'Apparel',
+    'Apparel Retail': 'Apparel',
+    'Textile Manufacturing': 'Apparel',
+    'Auto Manufacturers': 'Auto & Truck',
+    'Auto Manufacturers - Major': 'Auto & Truck',
+    'Auto Parts': 'Auto Parts',
+    'Banks—Diversified': 'Bank (Money Center)',
+    'Banks—Regional': 'Banks (Regional)',
+    'Beverages—Brewers': 'Beverage (Alcoholic)',
+    'Beverages—Wineries & Distilleries': 'Beverage (Alcoholic)',
+    'Beverages—Non-Alcoholic': 'Beverage (Soft)',
+    'Broadcasting': 'Broadcasting',
+    'Asset Management': 'Brokerage & Investment Banking',
+    'Capital Markets': 'Brokerage & Investment Banking',
+    'Closed-End Fund - Equity': 'Brokerage & Investment Banking',
+    'Building Materials': 'Building Materials',
+    'Business Equipment & Supplies': 'Business & Consumer Services',
+    'Chemicals': 'Chemical (Basic)',
+    'Chemicals - Major Diversified': 'Chemical (Diversified)',
+    'Specialty Chemicals': 'Chemical (Specialty)',
+    'Coking Coal': 'Coal & Related Energy',
+    'Thermal Coal': 'Coal & Related Energy',
+    'Information Technology Services': 'Computer Services',
+    'Computer Hardware': 'Computers/Peripherals',
+    'Building Products & Equipment': 'Construction Supplies',
+    'Conglomerates': 'Diversified',
+    'Biotechnology': 'Drugs (Biotechnology)',
+    'Drug Manufacturers—General': 'Drugs (Pharmaceutical)',
+    'Drug Manufacturers—Specialty & Generic': 'Drugs (Pharmaceutical)',
+    'Pharmaceutical Retailers': 'Drugs (Pharmaceutical)',
+    'Education & Training Services': 'Education',
+    'Electrical Equipment & Parts': 'Electrical Equipment',
+    'Electronic Components': 'Electrical Equipment',
+    'Consumer Electronics': 'Electronics (Consumer & Office)',
+    'Electronic Gaming & Multimedia': 'Software (Entertainment)',
+    'Electronics & Computer Distribution': 'Electronics (General)',
+    'Engineering & Construction': 'Engineering/Construction',
+    'Entertainment': 'Entertainment',
+    'Leisure': 'Entertainment',
+    'Pollution & Treatment Controls': 'Environmental & Waste Services',
+    'Waste Management': 'Environmental & Waste Services',
+    'Agricultural Inputs': 'Farming/Agriculture',
+    'Farm & Heavy Construction Machinery': 'Machinery',
+    'Farm Products': 'Farming/Agriculture',
+    'Credit Services': 'Financial Svcs. (Non-bank & Insurance)',
+    'Confectioners': 'Food Processing',
+    'Packaged Foods': 'Food Processing',
+    'Food Distribution': 'Food Wholesalers',
+    'Furnishings, Fixtures & Appliances': 'Furn/Home Furnishings',
+    'Solar': 'Green & Renewable Energy',
+    'Medical Instruments & Supplies': 'Healthcare Products',
+    'Medical Distribution': 'Healthcare Support Services',
+    'Scientific & Technical Instruments': 'Heathcare Information and Technology',
+    'Diagnostics & Research': 'Heathcare Information and Technology',
+    'Residential Construction': 'Homebuilding',
+    'Medical Care Facilities': 'Hospitals/Healthcare Facilities',
+    'Resorts & Casinos': 'Hotel/Gaming',
+    'Gambling': 'Hotel/Gaming',
+    'Lodging': 'Hotel/Gaming',
+    'Household & Personal Products': 'Household Products',
+    'Internet Content & Information': 'Information Services',
+    'Insurance—Diversified': 'Insurance (General)',
+    'Insurance—Life': 'Insurance (Life)',
+    'Insurance—Property & Casualty': 'Insurance (Prop/Cas.)',
+    'Tools & Accessories': 'Machinery',
+    'Specialty Industrial Machinery': 'Machinery',
+    'Other Industrial Metals & Mining': 'Metals & Mining',
+    'Aluminum': 'Metals & Mining',
+    'Copper': 'Metals & Mining',
+    'Metal Fabrication': 'Metals & Mining',
+    'Consulting Services': 'Office Equipment & Services',
+    'Specialty Business Services': 'Office Equipment & Services',
+    'Oil & Gas Integrated': 'Oil/Gas (Integrated)',
+    'Oil & Gas E&P': 'Oil/Gas (Production and Exploration)',
+    'Oil & Gas Refining & Marketing': 'Oil/Gas Distribution',
+    'Oil & Gas Equipment & Services': 'Oilfield Svcs/Equip.',
+    'Packaging & Containers': 'Packaging & Container',
+    'Paper & Paper Products': 'Paper/Forest Products',
+    'Lumber & Wood Production': 'Paper/Forest Products',
+    'Independent Oil & Gas': 'Power',
+    'Oil & Gas Drilling': 'Power',
+    'Oil & Gas Midstream': 'Power',
+    'Uranium': 'Power',
+    'Other Precious Metals & Mining': 'Precious Metals',
+    'Gold': 'Precious Metals',
+    'Silver': 'Precious Metals',
+    'Publishing': 'Publishing & Newspapers',
+    'REIT—Diversified': 'R.E.I.T.',
+    'REIT—Healthcare Facilities': 'R.E.I.T.',
+    'REIT—Hotel & Motel': 'R.E.I.T.',
+    'REIT—Industrial': 'R.E.I.T.',
+    'REIT—Mortgage': 'R.E.I.T.',
+    'REIT—Office': 'R.E.I.T.',
+    'REIT—Residential': 'R.E.I.T.',
+    'REIT—Retail': 'R.E.I.T.', 'REIT—Specialty': 'R.E.I.T.',
+    'Real Estate—Development': 'Real Estate (Development)',
+    'Real Estate—Diversified': 'Real Estate (General/Diversified)',
+    'Property Management': 'Real Estate (Operations & Services)',
+    'Real Estate Services': 'Real Estate (Operations & Services)',
+    'Rental & Leasing Services': 'Real Estate (Operations & Services)',
+    'Recreational Vehicles': 'Recreation',
+    'Insurance—Reinsurance': 'Reinsurance',
+    'Restaurants': 'Restaurant/Dining',
+    'Auto & Truck Dealerships': 'Retail (Automotive)',
+    'Home Improvement Retail': 'Retail (Building Supply)',
+    'Department Stores': 'Retail (Distributors)',
+    'Discount Stores': 'Retail (Distributors)',
+    'Luxury Goods': 'Retail (General)',
+    'Grocery Stores': 'Retail (Grocery and Food)',
+    'Internet Retail': 'Retail (Online)',
+    'Specialty Retail': 'Retail (Special Lines)',
+    'Semiconductors': 'Semiconductor',
+    'Semiconductor Equipment & Materials': 'Semiconductor Equip',
+    'Marine Shipping': 'Shipbuilding & Marine',
+    'Footwear & Accessories': 'Shoe',
+    'Software—Infrastructure': 'Software (Internet)',
+    'Software—Application': 'Software (System & Application)',
+    'Technical & System Software': 'Software (System & Application)',
+    'Steel': 'Steel',
+    'Communication Equipment': 'Telecom. Equipment',
+    'Telecom Services': 'Telecom. Services',
+    'Tobacco': 'Tobacco',
+    'Travel Services': 'Transportation',
+    'Integrated Freight & Logistics': 'Transportation',
+    'Railroads': 'Transportation (Railroads)', 'Trucking': 'Trucking',
+    'Utilities—Diversified': 'Utility (General)',
+    'Utilities—Independent Power Producers': 'Utility (General)',
+    'Utilities—Regulated Electric': 'Utility (General)',
+    'Utilities—Regulated Gas': 'Utility (General)',
+    'Utilities—Renewable': 'Utility (General)',
+    'Gas Utilities': 'Utility (General)',
+    'Utilities—Regulated Water': 'Utility (Water)',
+    'Financial Conglomerates': 'Bank (Money Center)',
+    'Financial Data & Stock Exchanges': 'Brokerage & Investment Banking',
+    'Health Information Services': 'Heathcare Information and Technology',
+    'Healthcare Plans': 'Healthcare Support Services',
+    'Industrial Distribution': 'Trucking',
+    'Infrastructure Operations': 'Machinery',
+    'Insurance Brokers': 'Insurance (General)',
+    'Insurance—Specialty': 'Insurance (General)',
+    'Medical Appliances & Equipment': 'Healthcare Products',
+    'Medical Devices': 'Healthcare Products',
+    'Mortgage Finance': 'Banks (Regional)',
+    'Personal Services': 'Business & Consumer Services',
+    'Security & Protection Services': 'Business & Consumer Services',
+    'Shell Companies': 'Financial Svcs. (Non-bank & Insurance)',
+    'Staffing & Employment Services': 'Business & Consumer Services',
+    'Staffing & Outsourcing Services': 'Business & Consumer Services',
+    'Entertainment - Diversified': 'Entertainment'}
 
 def get_connection():
 
@@ -59,222 +287,6 @@ def get_df_from_table(tablename, where=";", most_recent=False):
 
 def get_generic_info(ticker):
 
-    country_to_region = {
-        "Cyprus": "EU",
-        "Macau": "China",
-        "IsleofMan": "global",
-        "BritishVirginIslands": "global",
-        "Greece": "EU",
-        "Cambodia": "emerg",
-        "Malaysia": "emerg",
-        "Bermuda": "emerg",
-        "Canada": "Rest",
-        "UnitedStates": "US",
-        "UnitedArabEmirates": "US",
-        "Japan": "Japan",
-        "Australia": "Rest",
-        "NewZealand": "Rest",
-        "Austria": "EU",
-        "Belgium": "EU",
-        "Denmark": "EU",
-        "Finland": "EU",
-        "France": "EU",
-        "Germany": "EU",
-        "Ireland": "EU",
-        "Italy": "EU",
-        "Luxembourg": "EU",
-        "Netherlands": "EU",
-        "Portugal": "EU",
-        "Spain": "EU",
-        "Sweden": "EU",
-        "Switzerland": "EU",
-        "UnitedKingdom": "EU",
-        "China": "China",
-        "HongKong": "China",
-        "Taiwan": "China",
-        "India": "India",
-        "Argentina": "emerg",
-        "Brazil": "emerg",
-        "Chile": "emerg",
-        "Colombia": "emerg",
-        "Ecuador": "emerg",
-        "Indonesia": "emerg",
-        "Israel": "emerg",
-        "Mexico": "emerg",
-        "Peru": "emerg",
-        "Philippines": "emerg",
-        "Poland": "emerg",
-        "Estonia": "emerg",
-        "Romania": "emerg",
-        "Russia": "emerg",
-        "Latvia": "emerg",
-        "Lithuania": "emerg",
-        "Singapore": "China",
-        "Thailand": "emerg",
-        "Turkey": "emerg",
-        "SouthKorea": "Japan",
-        "SouthAfrica": "emerg",
-        "Iceland": "EU",
-        "Liechtenstein": "EU",
-        "Monaco": "EU",
-        "Norway": "EU",
-        "SaudiArabia": "emerg"
-    }
-
-    industry_translation = {
-        'Advertising Agencies': 'Advertising',
-        'Aerospace & Defense': 'Aerospace/Defense',
-        'Airlines': 'Air Transport',
-        'Airports & Air Services': 'Air Transport',
-        'Apparel Manufacturing': 'Apparel',
-        'Apparel Retail': 'Apparel',
-        'Textile Manufacturing': 'Apparel',
-        'Auto Manufacturers': 'Auto & Truck',
-        'Auto Manufacturers - Major': 'Auto & Truck',
-        'Auto Parts': 'Auto Parts',
-        'Banks—Diversified': 'Bank (Money Center)',
-        'Banks—Regional': 'Banks (Regional)',
-        'Beverages—Brewers': 'Beverage (Alcoholic)',
-        'Beverages—Wineries & Distilleries': 'Beverage (Alcoholic)',
-        'Beverages—Non-Alcoholic': 'Beverage (Soft)',
-        'Broadcasting': 'Broadcasting',
-        'Asset Management': 'Brokerage & Investment Banking',
-        'Capital Markets': 'Brokerage & Investment Banking',
-        'Closed-End Fund - Equity': 'Brokerage & Investment Banking',
-        'Building Materials': 'Building Materials',
-        'Business Equipment & Supplies': 'Business & Consumer Services',
-        'Chemicals': 'Chemical (Basic)',
-        'Chemicals - Major Diversified': 'Chemical (Diversified)',
-        'Specialty Chemicals': 'Chemical (Specialty)',
-        'Coking Coal': 'Coal & Related Energy',
-        'Thermal Coal': 'Coal & Related Energy',
-        'Information Technology Services': 'Computer Services',
-        'Computer Hardware': 'Computers/Peripherals',
-        'Building Products & Equipment': 'Construction Supplies',
-        'Conglomerates': 'Diversified',
-        'Biotechnology': 'Drugs (Biotechnology)',
-        'Drug Manufacturers—General': 'Drugs (Pharmaceutical)',
-        'Drug Manufacturers—Specialty & Generic': 'Drugs (Pharmaceutical)',
-        'Pharmaceutical Retailers': 'Drugs (Pharmaceutical)',
-        'Education & Training Services': 'Education',
-        'Electrical Equipment & Parts': 'Electrical Equipment',
-        'Electronic Components': 'Electrical Equipment',
-        'Consumer Electronics': 'Electronics (Consumer & Office)',
-        'Electronic Gaming & Multimedia': 'Software (Entertainment)',
-        'Electronics & Computer Distribution': 'Electronics (General)',
-        'Engineering & Construction': 'Engineering/Construction',
-        'Entertainment': 'Entertainment',
-        'Leisure': 'Entertainment',
-        'Pollution & Treatment Controls': 'Environmental & Waste Services',
-        'Waste Management': 'Environmental & Waste Services',
-        'Agricultural Inputs': 'Farming/Agriculture',
-        'Farm & Heavy Construction Machinery': 'Machinery',
-        'Farm Products': 'Farming/Agriculture',
-        'Credit Services': 'Financial Svcs. (Non-bank & Insurance)',
-        'Confectioners': 'Food Processing',
-        'Packaged Foods': 'Food Processing',
-        'Food Distribution': 'Food Wholesalers',
-        'Furnishings, Fixtures & Appliances': 'Furn/Home Furnishings',
-        'Solar': 'Green & Renewable Energy',
-        'Medical Instruments & Supplies': 'Healthcare Products',
-        'Medical Distribution': 'Healthcare Support Services',
-        'Scientific & Technical Instruments': 'Heathcare Information and Technology',
-        'Diagnostics & Research': 'Heathcare Information and Technology',
-        'Residential Construction': 'Homebuilding',
-        'Medical Care Facilities': 'Hospitals/Healthcare Facilities',
-        'Resorts & Casinos': 'Hotel/Gaming',
-        'Gambling': 'Hotel/Gaming',
-        'Lodging': 'Hotel/Gaming',
-        'Household & Personal Products': 'Household Products',
-        'Internet Content & Information': 'Information Services',
-        'Insurance—Diversified': 'Insurance (General)',
-        'Insurance—Life': 'Insurance (Life)',
-        'Insurance—Property & Casualty': 'Insurance (Prop/Cas.)',
-        'Tools & Accessories': 'Machinery',
-        'Specialty Industrial Machinery': 'Machinery',
-        'Other Industrial Metals & Mining': 'Metals & Mining',
-        'Aluminum': 'Metals & Mining',
-        'Copper': 'Metals & Mining',
-        'Metal Fabrication': 'Metals & Mining',
-        'Consulting Services': 'Office Equipment & Services',
-        'Specialty Business Services': 'Office Equipment & Services',
-        'Oil & Gas Integrated': 'Oil/Gas (Integrated)',
-        'Oil & Gas E&P': 'Oil/Gas (Production and Exploration)',
-        'Oil & Gas Refining & Marketing': 'Oil/Gas Distribution',
-        'Oil & Gas Equipment & Services': 'Oilfield Svcs/Equip.',
-        'Packaging & Containers': 'Packaging & Container',
-        'Paper & Paper Products': 'Paper/Forest Products',
-        'Lumber & Wood Production': 'Paper/Forest Products',
-        'Independent Oil & Gas': 'Power',
-        'Oil & Gas Drilling': 'Power',
-        'Oil & Gas Midstream': 'Power',
-        'Uranium': 'Power',
-        'Other Precious Metals & Mining': 'Precious Metals',
-        'Gold': 'Precious Metals',
-        'Silver': 'Precious Metals',
-        'Publishing': 'Publishing & Newspapers',
-        'REIT—Diversified': 'R.E.I.T.',
-        'REIT—Healthcare Facilities': 'R.E.I.T.',
-        'REIT—Hotel & Motel': 'R.E.I.T.',
-        'REIT—Industrial': 'R.E.I.T.',
-        'REIT—Mortgage': 'R.E.I.T.',
-        'REIT—Office': 'R.E.I.T.',
-        'REIT—Residential': 'R.E.I.T.',
-        'REIT—Retail': 'R.E.I.T.', 'REIT—Specialty': 'R.E.I.T.',
-        'Real Estate—Development': 'Real Estate (Development)',
-        'Real Estate—Diversified': 'Real Estate (General/Diversified)',
-        'Property Management': 'Real Estate (Operations & Services)',
-        'Real Estate Services': 'Real Estate (Operations & Services)',
-        'Rental & Leasing Services': 'Real Estate (Operations & Services)',
-        'Recreational Vehicles': 'Recreation',
-        'Insurance—Reinsurance': 'Reinsurance',
-        'Restaurants': 'Restaurant/Dining',
-        'Auto & Truck Dealerships': 'Retail (Automotive)',
-        'Home Improvement Retail': 'Retail (Building Supply)',
-        'Department Stores': 'Retail (Distributors)',
-        'Discount Stores': 'Retail (Distributors)',
-        'Luxury Goods': 'Retail (General)',
-        'Grocery Stores': 'Retail (Grocery and Food)',
-        'Internet Retail': 'Retail (Online)',
-        'Specialty Retail': 'Retail (Special Lines)',
-        'Semiconductors': 'Semiconductor',
-        'Semiconductor Equipment & Materials': 'Semiconductor Equip',
-        'Marine Shipping': 'Shipbuilding & Marine',
-        'Footwear & Accessories': 'Shoe',
-        'Software—Infrastructure': 'Software (Internet)',
-        'Software—Application': 'Software (System & Application)',
-        'Technical & System Software': 'Software (System & Application)',
-        'Steel': 'Steel',
-        'Communication Equipment': 'Telecom. Equipment',
-        'Telecom Services': 'Telecom. Services',
-        'Tobacco': 'Tobacco',
-        'Travel Services': 'Transportation',
-        'Integrated Freight & Logistics': 'Transportation',
-        'Railroads': 'Transportation (Railroads)', 'Trucking': 'Trucking',
-        'Utilities—Diversified': 'Utility (General)',
-        'Utilities—Independent Power Producers': 'Utility (General)',
-        'Utilities—Regulated Electric': 'Utility (General)',
-        'Utilities—Regulated Gas': 'Utility (General)',
-        'Utilities—Renewable': 'Utility (General)',
-        'Gas Utilities': 'Utility (General)',
-        'Utilities—Regulated Water': 'Utility (Water)',
-        'Financial Conglomerates': 'Bank (Money Center)',
-        'Financial Data & Stock Exchanges': 'Brokerage & Investment Banking',
-        'Health Information Services': 'Heathcare Information and Technology',
-        'Healthcare Plans': 'Healthcare Support Services',
-        'Industrial Distribution': 'Trucking',
-        'Infrastructure Operations': 'Machinery',
-        'Insurance Brokers': 'Insurance (General)',
-        'Insurance—Specialty': 'Insurance (General)',
-        'Medical Appliances & Equipment': 'Healthcare Products',
-        'Medical Devices': 'Healthcare Products',
-        'Mortgage Finance': 'Banks (Regional)',
-        'Personal Services': 'Business & Consumer Services',
-        'Security & Protection Services': 'Business & Consumer Services',
-        'Shell Companies': 'Financial Svcs. (Non-bank & Insurance)',
-        'Staffing & Employment Services': 'Business & Consumer Services',
-        'Staffing & Outsourcing Services': 'Business & Consumer Services',
-        'Entertainment - Diversified': 'Entertainment'}
     ticker_info = get_df_from_table("yahoo_equity_tickers", f"where symbol = '{ticker}'", most_recent=True).iloc[0]
     ticker_additional_info = get_df_from_table("tickers_additional_info", f"where symbol = '{ticker}'").iloc[0]
     company_name = ticker_info["long_name"]
@@ -291,12 +303,25 @@ def get_generic_info(ticker):
 
     return company_name, country, industry, region
 
-def currency_bond_yield(country, alpha_3_code, country_default_spread):
+def currency_bond_yield(currency, alpha_3_code, country_stats):
 
-    currency_10y_bond = get_10y_bond_yield(country)
+    currency_10y_bond, mother_country = get_10y_bond_yield(currency)
 
-    if currency_10y_bond is None:
-        us_10y_bond = get_10y_bond_yield("United States")
+    if currency_10y_bond is not None:
+
+        filter_df = country_stats[country_stats["country"] == mother_country.replace(" ", "")].iloc[0]
+        country_default_spread = float(filter_df["adjusted_default_spread"])
+
+        #10y yield currency - default risk mother currency
+        riskfree = currency_10y_bond - country_default_spread
+
+    else:
+        us_10y_bond, _ = get_10y_bond_yield("USD")
+
+        filter_df = country_stats[country_stats["country"] == "UnitedStates"].iloc[0]
+        us_cds = float(filter_df["adjusted_default_spread"])
+
+        riskfree_us = us_10y_bond - us_cds
 
         current_year_date = datetime.now().date().replace(day=1) - relativedelta(months=2)
         last_year_date = current_year_date - relativedelta(years=1)
@@ -317,11 +342,10 @@ def currency_bond_yield(country, alpha_3_code, country_default_spread):
             inflation_country = inflation_country[inflation_country["date"] == current_year_date]["value"].iloc[0] / \
                                 inflation_country[inflation_country["date"] == last_year_date]["value"].iloc[0] - 1
 
-        currency_10y_bond = us_10y_bond * float(inflation_country) / float(inflation_us)
-        currency_10y_bond += country_default_spread
+        riskfree = riskfree_us * float(inflation_country) / float(inflation_us)
         print("10y bond yield not found - inflation_country", inflation_country, "inflation_us", inflation_us)
 
-    return currency_10y_bond
+    return riskfree
 
 def get_industry_parameter(df, industry, region, parameter, debug=True):
 
@@ -370,7 +394,7 @@ def get_industry_parameter(df, industry, region, parameter, debug=True):
     else:
         return float(value)
 
-def get_industry_data(industry, region, debug=True):
+def get_industry_data(industry, region, geo_segments_df, debug=True):
 
     # TAKE 1/3 value from last year
     # 2/3 value from this year
@@ -394,17 +418,43 @@ def get_industry_data(industry, region, debug=True):
         # 2/3 value from this year
         df[x] = df[x+"_y"] * 1/3 + df[x+"_x"] * 2/3
 
-    # print(df)
+    target_sales_capital = 0
+    industry_payout = 0
+    pbv = 0
+    unlevered_beta = 0
+    target_operating_margin = 0
+    target_debt_equity = 0
 
-    target_sales_capital = get_industry_parameter(df, industry, region, "sales_capital", debug=debug)
-    industry_payout = get_industry_parameter(df, industry, region, "cash_return", debug=debug)
+    debug=True
 
-    if industry_payout > 1:
-        industry_payout = 1
+    if geo_segments_df.empty:
+        target_sales_capital = get_industry_parameter(df, industry, region, "sales_capital", debug=debug)
+        industry_payout = max(1, get_industry_parameter(df, industry, region, "cash_return", debug=debug))
+        pbv = get_industry_parameter(df, industry, region, "pbv", debug=debug)
+        unlevered_beta = get_industry_parameter(df, industry, region, "unlevered_beta", debug=debug)
+        target_operating_margin = get_industry_parameter(df, industry, region, "opmargin_adjusted", debug=debug)
+        target_debt_equity = get_industry_parameter(df, industry, region, "debt_equity", debug=debug)
 
-    pbv = get_industry_parameter(df, industry, region, "pbv", debug=debug)
-    unlevered_beta = get_industry_parameter(df, industry, region, "unlevered_beta", debug=debug)
-    target_operating_margin = get_industry_parameter(df, industry, region, "opmargin_adjusted", debug=debug)
-    target_debt_equity = get_industry_parameter(df, industry, region, "debt_equity", debug=debug)
+    else:
+        for _, row in geo_segments_df.iterrows():
+            percent = row["value"]
+            r = row["region"]
 
+            tsc = get_industry_parameter(df, industry, r, "sales_capital", debug=debug)
+            ip = min(1, get_industry_parameter(df, industry, r, "cash_return", debug=debug))
+            p = get_industry_parameter(df, industry, r, "pbv", debug=debug)
+            ub = get_industry_parameter(df, industry, r, "unlevered_beta", debug=debug)
+            tom = get_industry_parameter(df, industry, r, "opmargin_adjusted", debug=debug)
+            tde = get_industry_parameter(df, industry, r, "debt_equity", debug=debug)
+
+            print(f"DEBUG REGION {r} ({percent}) tsc={tsc} ip={ip} p={p} ub={ub} tom={tom} tde={tde}")
+
+            target_sales_capital += tsc * percent
+            industry_payout = min(1, industry_payout + ip * percent)
+            pbv += p * percent
+            unlevered_beta += ub * percent
+            target_operating_margin += tom * percent
+            target_debt_equity += tde * percent
+
+    print(target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity)
     return target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity

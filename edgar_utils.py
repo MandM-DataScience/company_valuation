@@ -5,6 +5,7 @@ import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from dateutil.relativedelta import relativedelta
+from pymongo.errors import DocumentTooLarge
 
 import mongodb
 
@@ -161,7 +162,11 @@ def download_document(url, cik, form_type, filing_date):
     response = make_edgar_request(url)
     r = response.text
     doc = {"html": r, "cik": cik, "form_type": form_type, "filing_date": filing_date, "_id":url}
-    mongodb.insert_document("documents", doc)
+
+    try:
+        mongodb.insert_document("documents", doc)
+    except DocumentTooLarge:
+        print("Document too Large (over 16MB)", url)
 
 def parse_document(url):
     '''
@@ -245,8 +250,8 @@ def download_financial_data(cik):
 
     # ETFs, funds, trusts do not have financial information
     except:
-        print(f"ERROR {cik}")
-        print(response)
+        print(f"ERROR {cik} - {response} - {url}")
+        print(company_from_cik(cik))
 
 def get_filing_from_index(url):
     """
@@ -265,7 +270,7 @@ def get_filing_from_index(url):
 def get_latest_filings(form_type, start_date):
 
     """
-    Get new filings (for all companies) since 'start_date'.
+    Get new filings (for all companies) since 'start_date' (yyyy-mm-dd).
     Insert new submission documents on mongodb.
     Insert new financial data on mongodb.
 
@@ -278,6 +283,9 @@ def get_latest_filings(form_type, start_date):
     start_idx = 0
     entries_per_request = 5
     done = False
+
+    cik_df = get_df_cik_ticker_map()
+    ciks = list(cik_df["cik"].unique())
 
     while not done:
         url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type={form_type}&datea={start_date}&" \
@@ -295,6 +303,11 @@ def get_latest_filings(form_type, start_date):
         for entry in entries:
 
             cik = entry.find("id").text.split(":")[-1].split("=")[-1].split("-")[0]
+
+            if cik not in ciks:
+                print(f"{cik} not present in cik map - skip")
+                continue
+
             index_url = entry.find("link")["href"]
 
             url = get_filing_from_index(index_url)
@@ -308,3 +321,7 @@ def get_latest_filings(form_type, start_date):
 
             if form_type in ["10-Q", "10-K"]:
                 download_financial_data(cik)
+
+        start_idx += entries_per_request
+
+# get_latest_filings("10-Q", "2023-05-01")

@@ -1,3 +1,4 @@
+import math
 import traceback
 
 import pandas as pd
@@ -5,6 +6,7 @@ import numpy as np
 import mongodb
 from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK
 from postgresql import get_df_from_table, get_generic_info, currency_bond_yield, get_industry_data
+from qualitative_analysis import get_last_document, extract_segments, geography_distribution
 from valuation_helper import convert_currencies, get_target_info, get_normalized_info, get_dividends_info, \
     get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation, \
     r_and_d_amortization, get_growth_ttm, capitalize_rd, debtize_op_leases, get_roe_roc, get_spread_from_dscr
@@ -1653,6 +1655,9 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     (OK if company is underpriced, NI if company is correctly priced, KO is company is overpriced)
     """
 
+    # TODO check why python val and excel val results differs
+    # TODO what to do about industry segments
+
     data = extract_company_financial_information(cik)
     print(data)
 
@@ -1673,21 +1678,45 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     db_curr = yahoo_equity_ticker["currency"]
     db_financial_curr = yahoo_equity_ticker["financial_currency"]
 
-    country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
-    country_stats = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
     damodaran_bond_spread = get_df_from_table("damodaran_bond_spread", most_recent=True)
     damodaran_bond_spread["greater_than"] = pd.to_numeric(damodaran_bond_spread["greater_than"])
     damodaran_bond_spread["less_than"] = pd.to_numeric(damodaran_bond_spread["less_than"])
 
-    tax_rate = float(country_stats["tax_rate"])
+    doc = get_last_document(cik, "10-K")
+    segments = extract_segments(doc)
+    geo_segments_df = geography_distribution(segments, ticker)
+    print(geo_segments_df.to_markdown())
 
-    country_default_spread = float(country_stats["adjusted_default_spread"])
-    alpha_3_code = country_stats["alpha_3_code"]
-    country_risk_premium = float(country_stats["country_risk_premium"])
+    country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
+
+    tax_rate = 0
+    country_default_spread = 0
+    country_risk_premium = 0
+
+    if geo_segments_df.empty:
+        filter_df = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
+        tax_rate = float(filter_df["tax_rate"])
+        country_default_spread = float(filter_df["adjusted_default_spread"])
+        country_risk_premium = float(filter_df["country_risk_premium"])
+
+    else:
+        for _, row in geo_segments_df.iterrows():
+            percent = row["value"]
+            search_key = row["country_area"]
+
+            filter_df = country_stats[country_stats["country"] == search_key.replace(" ", "")].iloc[0]
+            t = float(filter_df["tax_rate"])
+            cds = float(filter_df["adjusted_default_spread"])
+            crp = float(filter_df["country_risk_premium"])
+
+            tax_rate += t * percent
+            country_default_spread += cds * percent
+            country_risk_premium += crp * percent
+
     final_erp = float(erp) + country_risk_premium
 
-    currency_10y_bond = currency_bond_yield(country, alpha_3_code, country_default_spread)
-    riskfree = currency_10y_bond - country_default_spread
+    alpha_3_code = country_stats["alpha_3_code"]
+    riskfree = currency_bond_yield(db_financial_curr, alpha_3_code, country_stats)
 
     if debug:
         print("===== GENERAL INFORMATION =====\n")
@@ -1698,12 +1727,12 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("region", region)
         print("industry", industry)
         print("financial currency", db_financial_curr)
-        print("Currency 10Y bond yield", currency_10y_bond)
+        print("riskfree", riskfree)
         print("erp", erp)
         print("\n\n")
 
     target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity = \
-        get_industry_data(industry, region, debug=debug)
+        get_industry_data(industry, region, geo_segments_df, debug=debug)
 
     mr_original_min_interest = data["mr_minority_interest"]["value"]
     mr_minority_interest = mr_original_min_interest * pbv

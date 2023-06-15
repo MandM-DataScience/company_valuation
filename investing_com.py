@@ -2,6 +2,44 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 
+currency_country = {
+    "AUD": "Australia",
+    "BRL": "Brazil",
+    "CAD": "Canada",
+    "CHF": "Switzerland",
+    "CLP": "Chile",
+    "CNY": "China",
+    "COP": "Colombia",
+    "CZK": "Czech Republic",
+    "DKK": "Denmark",
+    "EGP": "Egypt",
+    "EUR": "Germany",
+    "GBP": "United Kingdom",
+    "HKD": "Hong Kong",
+    "HUF": "Hungary",
+    "IDR": "Indonesia",
+    "ILS": "Israel",
+    "INR": "India",
+    "ISK": "Iceland",
+    "JPY": "Japan",
+    "KRW": "South Korea",
+    "KZT": "Kazakhstan",
+    "MXN": "Mexico",
+    "MYR": "Malaysia",
+    "NGN": "Nigeria",
+    "NOK": "Norway",
+    "NZD": "New Zealand",
+    "PHP": "Philippines",
+    "PLN": "Poland",
+    "QAR": "Qatar",
+    "RUB": "Russia",
+    "SGD": "Singapore",
+    "THB": "Thailand",
+    "TRY": "Turkey",
+    "TWD": "Taiwan",
+    "USD": "United States",
+    "ZAR": "South Africa",
+}
 country_url = {
     "Australia": "https://www.investing.com/rates-bonds/australia-10-year-bond-yield",
     "Austria": "https://www.investing.com/rates-bonds/austria-10-year-bond-yield",
@@ -13,6 +51,7 @@ country_url = {
     "Colombia": "https://www.investing.com/rates-bonds/colombia-10-year-bond-yield",
     "Cyprus": "https://www.investing.com/rates-bonds/cyprus-10-year",
     "Czech Republic": "https://www.investing.com/rates-bonds/czech-republic-10-year-bond-yield",
+    "Denmark": "https://www.investing.com/rates-bonds/denmark-10-year-bond-yield",
     "Egypt": "https://www.investing.com/rates-bonds/egypt-10-year-bond-yield",
     "Finland": "https://www.investing.com/rates-bonds/finland-10-year-bond-yield",
     "France": "https://www.investing.com/rates-bonds/france-10-year-bond-yield",
@@ -54,13 +93,13 @@ country_url = {
     "Vietnam": "https://www.investing.com/rates-bonds/vietnam-10-year-bond-yield"
 }
 
-def get_10y_bond_yield(country):
+def get_10y_bond_yield(currency):
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    if country not in country_url:
+    if currency not in currency_country:
         return
 
-    url = country_url[country]
+    url = country_url[currency_country[currency]]
     headers = {
         'accept': 'text/plain, */*; q=0.01',
         'accept-encoding': 'gzip, deflate, utf-8',
@@ -95,7 +134,7 @@ def get_10y_bond_yield(country):
             if retries >= max_retries:
                 break
 
-    return bondyield
+    return bondyield, currency_country[currency]
 
 def request_with_retries(url, headers=None):
 
