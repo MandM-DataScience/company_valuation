@@ -8,6 +8,7 @@ import psycopg2
 from dateutil.relativedelta import relativedelta
 
 from investing_com import get_10y_bond_yield
+import numpy as np
 
 country_to_region = {
     "Cyprus": "EU",
@@ -394,7 +395,8 @@ def get_industry_parameter(df, industry, region, parameter, debug=True):
     else:
         return float(value)
 
-def get_industry_data(industry, region, geo_segments_df, debug=True):
+def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, revenue_delta, reinvestment, equity_mkt, debt_mkt,
+                          equity_bv_adj, debt_bv_adj, mr_equity_adj, mr_debt_adj, min_std=0.1, max_std=1):
 
     # TAKE 1/3 value from last year
     # 2/3 value from this year
@@ -418,22 +420,22 @@ def get_industry_data(industry, region, geo_segments_df, debug=True):
         # 2/3 value from this year
         df[x] = df[x+"_y"] * 1/3 + df[x+"_x"] * 2/3
 
-    target_sales_capital = 0
+    industry_sales_capital = 0
     industry_payout = 0
     pbv = 0
     unlevered_beta = 0
-    target_operating_margin = 0
-    target_debt_equity = 0
+    industry_operating_margin = 0
+    industry_debt_equity = 0
 
     debug=True
 
     if geo_segments_df.empty:
-        target_sales_capital = get_industry_parameter(df, industry, region, "sales_capital", debug=debug)
+        industry_sales_capital = get_industry_parameter(df, industry, region, "sales_capital", debug=debug)
         industry_payout = max(1, get_industry_parameter(df, industry, region, "cash_return", debug=debug))
         pbv = get_industry_parameter(df, industry, region, "pbv", debug=debug)
         unlevered_beta = get_industry_parameter(df, industry, region, "unlevered_beta", debug=debug)
-        target_operating_margin = get_industry_parameter(df, industry, region, "opmargin_adjusted", debug=debug)
-        target_debt_equity = get_industry_parameter(df, industry, region, "debt_equity", debug=debug)
+        industry_operating_margin = get_industry_parameter(df, industry, region, "opmargin_adjusted", debug=debug)
+        industry_debt_equity = get_industry_parameter(df, industry, region, "debt_equity", debug=debug)
 
     else:
         for _, row in geo_segments_df.iterrows():
@@ -447,14 +449,52 @@ def get_industry_data(industry, region, geo_segments_df, debug=True):
             tom = get_industry_parameter(df, industry, r, "opmargin_adjusted", debug=debug)
             tde = get_industry_parameter(df, industry, r, "debt_equity", debug=debug)
 
-            print(f"DEBUG REGION {r} ({percent}) tsc={tsc} ip={ip} p={p} ub={ub} tom={tom} tde={tde}")
-
-            target_sales_capital += tsc * percent
+            industry_sales_capital += tsc * percent
             industry_payout = min(1, industry_payout + ip * percent)
             pbv += p * percent
             unlevered_beta += ub * percent
-            target_operating_margin += tom * percent
-            target_debt_equity += tde * percent
+            industry_operating_margin += tom * percent
+            industry_debt_equity += tde * percent
 
-    print(target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity)
+    operating_margin = []
+    debt_equity = []
+    sales_capital = []
+    for i in range(len(revenue)):
+        try:
+            operating_margin.append(ebit_adj[i] / revenue[i])
+        except:
+            operating_margin.append(0)
+        try:
+            debt_equity.append((debt_bv_adj[i] * (debt_mkt/mr_debt_adj)) / (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)))
+        except:
+            debt_equity.append(0)
+        try:
+            sales_capital.append(revenue_delta[i] / reinvestment[i])
+        except:
+            sales_capital.append(0)
+
+    weights = [2**x for x in range(len(revenue))]
+    sum_weights = sum(weights)
+
+    om_company = sum(i[0] * i[1] for i in zip(operating_margin, weights)) / sum_weights
+    de_company = sum(i[0] * i[1] for i in zip(debt_equity, weights)) / sum_weights
+    sc_company = sum(i[0] * i[1] for i in zip(sales_capital, weights)) / sum_weights
+
+    std_om_company = np.std(operating_margin)
+    std_de_company = np.std(debt_equity)
+    std_sc_company = np.std(sales_capital)
+
+    om_industry_weight = max(0, min(1, ((std_om_company / om_company) - min_std) / (max_std - min_std)))
+    de_industry_weight = max(0, min(1, ((std_de_company / de_company) - min_std) / (max_std - min_std)))
+    sc_industry_weight = max(0, min(1, ((std_sc_company / sc_company) - min_std) / (max_std - min_std)))
+
+    target_sales_capital = sc_industry_weight * industry_sales_capital + (1 - sc_industry_weight) * sc_company
+    target_debt_equity = de_industry_weight * industry_debt_equity + (1 - de_industry_weight) * de_company
+    target_operating_margin = om_industry_weight * industry_operating_margin + (1 - om_industry_weight) * om_company
+
+    # print("DEBUG TARGETS")
+    # print("sc_company",sc_company,"industry_sales_capital",industry_sales_capital,"std_sc_company",std_sc_company,"sc_industry_weight",sc_industry_weight,"target_sales_capital",target_sales_capital)
+    # print("om_company",om_company,"industry_operating_margin",industry_operating_margin,"std_om_company",std_om_company,"om_industry_weight",om_industry_weight,"target_operating_margin",target_operating_margin)
+    # print("de_company",de_company,"industry_debt_equity",industry_debt_equity,"std_de_company",std_de_company,"de_industry_weight",de_industry_weight,"target_debt_equity",target_debt_equity)
+
     return target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity

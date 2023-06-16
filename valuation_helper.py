@@ -524,17 +524,10 @@ def get_dividends_info(eps_adj, dividends):
         payout_5y = 0
     return eps_5y, payout_5y
 
-def get_final_info(ttm_interest_expense_adj, riskfree, cost_of_debt, shares, mr_debt_adj, unlevered_beta,
-                   tax_rate, final_erp, company_default_spread, price_per_share, fx_rate):
+def get_final_info(riskfree, cost_of_debt, equity_mkt, debt_mkt, unlevered_beta,
+                   tax_rate, final_erp, company_default_spread):
 
     survival_prob = (1 - company_default_spread) ** 10
-
-    equity_mkt = shares * price_per_share
-    if fx_rate is not None:
-        equity_mkt /= fx_rate
-
-    debt_mkt = ttm_interest_expense_adj * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt_adj / (
-                1 + cost_of_debt) ** 6
 
     try:
         debt_equity = debt_mkt / equity_mkt
@@ -551,7 +544,7 @@ def get_final_info(ttm_interest_expense_adj, riskfree, cost_of_debt, shares, mr_
     debt_weight = 1 - equity_weight
     cost_of_capital = cost_of_equity * equity_weight + cost_of_debt * (1 - tax_rate) * debt_weight
 
-    return survival_prob, equity_mkt, debt_mkt, debt_equity, \
+    return survival_prob, debt_equity, \
            levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital
 
 def calculate_liquidation_value(cash, receivables, inventory, securities, other_current_assets, ppe,

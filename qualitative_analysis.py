@@ -143,8 +143,6 @@ def map_geographic_area(string):
 def geography_distribution(segments, ticker):
 
     df = pd.DataFrame(segments)
-    # print(df.to_markdown())
-    # return
 
     if df.empty:
         return
@@ -241,10 +239,9 @@ def try_geo_segments():
             continue
 
         print(doc["_id"])
-        ticker = doc["_id"].split("/")[1].split("-")[0]
-        segments = extract_segments(doc["_id"])
+        ticker = doc["_id"].split("/")[-1].split("-")[0]
+        segments = extract_segments(doc)
         geography_distribution(segments, ticker)
-        return
 
 
     # segments = extract_segments(url)
@@ -267,5 +264,7 @@ def get_last_document(cik, form_type):
 
 if __name__ == '__main__':
 
-    doc = get_last_document(AAPL_CIK, "10-K")
-    print(doc["_id"])
+    # doc = get_last_document(AAPL_CIK, "10-K")
+    # print(doc["_id"])
+
+    try_geo_segments()

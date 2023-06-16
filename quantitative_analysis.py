@@ -1655,7 +1655,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     (OK if company is underpriced, NI if company is correctly priced, KO is company is overpriced)
     """
 
-    # TODO check why python val and excel val results differs
     # TODO what to do about industry segments
 
     data = extract_company_financial_information(cik)
@@ -1685,7 +1684,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     doc = get_last_document(cik, "10-K")
     segments = extract_segments(doc)
     geo_segments_df = geography_distribution(segments, ticker)
-    print(geo_segments_df.to_markdown())
 
     country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
 
@@ -1730,12 +1728,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("riskfree", riskfree)
         print("erp", erp)
         print("\n\n")
-
-    target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity = \
-        get_industry_data(industry, region, geo_segments_df, debug=debug)
-
-    mr_original_min_interest = data["mr_minority_interest"]["value"]
-    mr_minority_interest = mr_original_min_interest * pbv
 
     final_year = data["revenue"]["dates"][-1]
     initial_year = final_year - years + 1
@@ -1871,6 +1863,24 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     ttm_eps = ttm_net_income / mr_shares
     ttm_eps_adj = ttm_net_income_adj / mr_shares
 
+    reinvestment = []
+    for i in range(len(capex)):
+        reinvestment.append(capex_adj[i] + delta_wc[i] - depreciation_adj[i])
+
+    equity_mkt = mr_shares * price_per_share
+    if fx_rate is not None:
+        equity_mkt /= fx_rate
+
+    debt_mkt = ttm_interest_expense_adj * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt_adj / (
+                1 + cost_of_debt) ** 6
+
+    target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity = \
+        get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, revenue_delta, reinvestment,
+                          equity_mkt, debt_mkt, equity_bv_adj, debt_bv_adj, mr_equity_adj, mr_debt_adj)
+
+    mr_original_min_interest = data["mr_minority_interest"]["value"]
+    mr_minority_interest = mr_original_min_interest * pbv
+
     if debug:
         print("\n\n")
         print("===== Last Available Data =====\n")
@@ -1907,26 +1917,11 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("r_and_d", r_and_d)
         print("\n\n")
 
-    reinvestment = []
-    for i in range(len(capex)):
-        reinvestment.append(capex_adj[i] + delta_wc[i] - depreciation_adj[i])
-
-    # ebit_adj = ttm_ebit + ebit_r_and_d_adj + leases_adj
-    # equity_bv_adj = mr_equity + r_and_d_value
-    # debt_bv_adj = mr_debt + leases_value
-
     roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last = \
         get_growth_ttm(ttm_ebit_after_tax, ttm_net_income_adj, mr_equity_adj, mr_debt_adj, mr_cash_and_securities,
                        reinvestment, ttm_dividends, industry_payout)
 
     roe, roc = get_roe_roc(equity_bv_adj, debt_bv_adj, cash_and_securities, ebit_after_tax, net_income_adj)
-
-    # operating_margin = []
-    # for i in range(1, len(revenue)):
-    #     try:
-    #         operating_margin.append(ebit_adj[i] / revenue[i])
-    #     except:
-    #         operating_margin.append(0)
 
     cagr, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital = \
         get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, riskfree,
@@ -1939,10 +1934,10 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     eps_5y, payout_5y = get_dividends_info(eps_adj, dividends)
 
-    survival_prob, equity_mkt, debt_mkt, debt_equity, \
+    survival_prob, debt_equity, \
     levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital = \
-        get_final_info(ttm_interest_expense_adj, riskfree, cost_of_debt, mr_shares, mr_debt_adj, unlevered_beta,
-                       tax_rate, final_erp, company_default_spread, price_per_share, fx_rate)
+        get_final_info(riskfree, cost_of_debt, equity_mkt, debt_mkt, unlevered_beta,
+                   tax_rate, final_erp, company_default_spread)
 
     mr_receivables = data["mr_receivables"]["value"]
     mr_inventory = data["mr_inventory"]["value"]
