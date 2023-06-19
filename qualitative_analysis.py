@@ -5,7 +5,7 @@ import pandas as pd
 from bs4 import BeautifulSoup
 
 import mongodb
-from edgar_utils import company_from_cik, AAPL_CIK
+from edgar_utils import company_from_cik, AAPL_CIK, download_all_cik_submissions, download_submissions_documents
 from openai_interface import summarize_section
 from postgresql import get_df_from_table, country_to_region
 
@@ -259,6 +259,11 @@ def get_last_document(cik, form_type):
         if last_date is None or filing_date > last_date:
             last_date = filing_date
             last_doc = doc
+
+    if last_doc is None:
+        download_all_cik_submissions(cik)
+        download_submissions_documents(cik)
+        return get_last_document(cik, form_type)
 
     return last_doc
 

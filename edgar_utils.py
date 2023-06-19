@@ -77,7 +77,10 @@ def company_from_cik(cik):
     :return: DataFrame row with company information (name, ticker, exchange)
     '''
     df = get_df_cik_ticker_map()
-    return df[df["cik"] == cik].iloc[0]
+    try:
+        return df[df["cik"] == cik].iloc[0]
+    except IndexError:
+        return None
 
 def cik_from_ticker(ticker):
     '''
@@ -325,3 +328,5 @@ def get_latest_filings(form_type, start_date):
         start_idx += entries_per_request
 
 # get_latest_filings("10-Q", "2023-05-01")
+# download_all_cik_submissions("0001326801")
+# download_submissions_documents("0001326801")

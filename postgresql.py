@@ -431,7 +431,7 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
 
     if geo_segments_df.empty:
         industry_sales_capital = get_industry_parameter(df, industry, region, "sales_capital", debug=debug)
-        industry_payout = max(1, get_industry_parameter(df, industry, region, "cash_return", debug=debug))
+        industry_payout = min(1, get_industry_parameter(df, industry, region, "cash_return", debug=debug))
         pbv = get_industry_parameter(df, industry, region, "pbv", debug=debug)
         unlevered_beta = get_industry_parameter(df, industry, region, "unlevered_beta", debug=debug)
         industry_operating_margin = get_industry_parameter(df, industry, region, "opmargin_adjusted", debug=debug)
@@ -459,22 +459,40 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
     operating_margin = []
     debt_equity = []
     sales_capital = []
+
+    sales_capital_5y = sum(revenue_delta) / sum(reinvestment)
+    if sales_capital_5y <= 0:
+        sales_capital_5y = industry_sales_capital
+
     for i in range(len(revenue)):
         try:
             operating_margin.append(ebit_adj[i] / revenue[i])
         except:
             operating_margin.append(0)
-        try:
+
+        if (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)) > 0:
             debt_equity.append((debt_bv_adj[i] * (debt_mkt/mr_debt_adj)) / (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)))
-        except:
+        else:
             debt_equity.append(0)
+
         try:
-            sales_capital.append(revenue_delta[i] / reinvestment[i])
+            if revenue_delta[i] / reinvestment[i] > 0:
+                sales_capital.append(revenue_delta[i] / reinvestment[i])
+            else:
+                sales_capital.append(sales_capital_5y)
         except:
             sales_capital.append(0)
 
-    weights = [2**x for x in range(len(revenue))]
+    weights = [x+1 for x in range(len(revenue))]
     sum_weights = sum(weights)
+
+    print(debt_bv_adj)
+    print(debt_mkt)
+    print(mr_debt_adj)
+    print(equity_bv_adj)
+    print(equity_mkt)
+    print(mr_equity_adj)
+    print(debt_equity)
 
     om_company = sum(i[0] * i[1] for i in zip(operating_margin, weights)) / sum_weights
     de_company = sum(i[0] * i[1] for i in zip(debt_equity, weights)) / sum_weights
@@ -492,9 +510,9 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
     target_debt_equity = de_industry_weight * industry_debt_equity + (1 - de_industry_weight) * de_company
     target_operating_margin = om_industry_weight * industry_operating_margin + (1 - om_industry_weight) * om_company
 
-    # print("DEBUG TARGETS")
-    # print("sc_company",sc_company,"industry_sales_capital",industry_sales_capital,"std_sc_company",std_sc_company,"sc_industry_weight",sc_industry_weight,"target_sales_capital",target_sales_capital)
-    # print("om_company",om_company,"industry_operating_margin",industry_operating_margin,"std_om_company",std_om_company,"om_industry_weight",om_industry_weight,"target_operating_margin",target_operating_margin)
-    # print("de_company",de_company,"industry_debt_equity",industry_debt_equity,"std_de_company",std_de_company,"de_industry_weight",de_industry_weight,"target_debt_equity",target_debt_equity)
+    print("DEBUG TARGETS")
+    print("sc_company",sc_company,"industry_sales_capital",industry_sales_capital,"std_sc_company",std_sc_company,"sc_industry_weight",sc_industry_weight,"target_sales_capital",target_sales_capital)
+    print("om_company",om_company,"industry_operating_margin",industry_operating_margin,"std_om_company",std_om_company,"om_industry_weight",om_industry_weight,"target_operating_margin",target_operating_margin)
+    print("de_company",de_company,"industry_debt_equity",industry_debt_equity,"std_de_company",std_de_company,"de_industry_weight",de_industry_weight,"target_debt_equity",target_debt_equity)
 
     return target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity

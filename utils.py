@@ -3,12 +3,13 @@ import os
 import time
 from datetime import datetime
 
+import Levenshtein as Levenshtein
 from bs4 import BeautifulSoup
 from selenium import webdriver
 
 import mongodb
 from edgar_utils import company_from_cik, AAPL_CIK, download_submissions_documents, download_all_cik_submissions
-
+import string
 
 def parse_10_K(soup):
 
@@ -215,14 +216,20 @@ def test_parse_document():
         # break
     # print(result)
 
+def string_similarity_percentage(string1, string2):
+    distance = Levenshtein.distance(string1.replace(" ",""), string2.replace(" ",""))
+    max_length = max(len(string1), len(string2))
+    similarity_percentage = (1 - (distance / max_length)) * 100
+    return similarity_percentage
 
-def get_all_sections(soup):
+def get_all_sections(soup, THRESHOLD=50):
 
     import re
     tables = soup.body.findAll("table")
     chosen_table = None
     max_table = 0
-    section_strings = []
+    num_section = 1
+    sections = {}
 
     for t in tables:
         count = 0
@@ -237,25 +244,77 @@ def get_all_sections(soup):
             max_table = count
 
     if chosen_table is not None:
-        hrefs = []
-        for a in chosen_table.findAll("a"):
-            href = a['href']
-            if href not in hrefs:
-                hrefs.append(href)
+        for tr in chosen_table.findAll("tr"):
 
-        print(hrefs)
+            try:
+                a = tr.find_all("a")[0]
+            except:
+                continue
 
-        hrefs = [h[1:] for h in hrefs]
+            href = a['href'][1:]
 
-        for h in hrefs:
+            for el in tr.children:
+                text = el.text
+
+                # remove text in parentheses + strip
+                text = re.sub(r'\([^)]*\)', '', text).strip(string.punctuation + string.whitespace)
+
+                if text.lower().startswith("item") \
+                        or text.lower().startswith("part ")\
+                        or text.isdigit()\
+                        or text == "":
+                    continue
+                else:
+                    sections[num_section] = {"title": text.lower(), "href":href}
+                    num_section += 1
+
+        # print(sections)
+
+        for s in sections:
+
+            h = sections[s]["href"]
+
             h_tag = soup.find(id=h)
+            if h_tag is None:
+                h_tag = soup.find_all(attrs={"name":h})[0]
 
-            while len(h_tag.text.strip()) <= 0:
+            # print(sections[s], "=>", h_tag)
+
+            while h_tag.parent.name != "body":
                 h_tag = h_tag.parent
 
-            section_strings.append(h_tag.text.strip())
+            # print(h, hrefs[h], "=>", h_tag)
 
-    return section_strings
+            found = False
+            while not found:
+
+                h_tag = h_tag.next_sibling
+                similarity = string_similarity_percentage(sections[s]["title"], h_tag.text.lower())
+
+                if sections[s]["title"] in h_tag.text.lower() or similarity > THRESHOLD:
+                    found = True
+                    sections[s]["start_el"] = h_tag
+                    # print(f"FOUND ({sections[s]['title']}) in {h_tag.text} ({similarity})")
+                # else:
+                    # print(f"not found ({sections[s]['title']}) in {h_tag.text} ({similarity})")
+
+            # print(sections[s], "=>", h_tag)
+
+        all_elements = soup.find_all()
+
+        for k in sections:
+            idx = all_elements.index(sections[k]["start_el"])
+            sections[k]["idx"] = idx
+            # print(sections[k]["title"], "IDX=", idx)
+
+        sections = dict(sorted(sections.items(), key=lambda x: x[1]["idx"]))
+
+        keys = list(sections.keys())
+        for i, k in enumerate(keys):
+            if i < len(keys)-1:
+                sections[k]["end_el"] = sections[keys[i+1]]["start_el"]
+
+    return sections
 
 
 def parse_v2():
@@ -265,6 +324,7 @@ def parse_v2():
     import mongodb
     import re
     docs = mongodb.get_collection_documents("documents")
+    skip = True
 
     for doc in docs:
 
@@ -274,13 +334,21 @@ def parse_v2():
         filing_date = doc["filing_date"]
         html = doc["html"]
 
-        # if doc['_id'] != "https://www.sec.gov/Archives/edgar/data/1672688/000162828023020162/absi-20221231.htm":
-        #     continue
-
         if form_type != "10-K":
             continue
 
+        if doc['_id'] == "https://www.sec.gov/Archives/edgar/data/2488/000000248823000047/amd-20221231.htm":
+            skip = False
+
+        if skip:
+            continue
+
         company_info = company_from_cik(cik)
+
+        # no cik in cik_map
+        if company_info is None:
+            continue
+
         print(company_info)
         print(form_type)
         print(url)
@@ -296,35 +364,30 @@ def parse_v2():
         if soup.body is None:
             continue
 
-        all_text = soup.body.text.strip()
+        # all_text = soup.body.text.strip()
 
         sections = get_all_sections(soup)
+        print(sections)
 
+        for s in sections:
 
-        # print(sections)
+            text = ""
+            el = sections[s]["start_el"]
 
-        min_index = 0
-
-        for i in range(1, len(sections)+1):
-
-            # print(f"FROM {sections[i-1]} TO {sections[i]}")
-            start = all_text.find(sections[i-1], min_index)
-            if i == len(sections):
-                end = -1
+            if "end_el" in sections[s]:
+                while el != sections[s]["end_el"]:
+                    text += el.text
+                    el = el.next_sibling
             else:
-                end = all_text.find(sections[i], start)
+                while el.next_sibling is not None:
+                    text += el.text
+                    el = el.next_sibling
 
-            min_index = end
-            # print(f"{start} -> {end} [{len(all_text[start:end])}] \t {sections[i-1]}")
+            sections[s]["text"] = text
 
-            # print(start, end)
-            # print(all_text[start:end])
-            # print()
-            # print()
-            # print()
+            print(sections[s]["title"], len(sections[s]["text"]))
 
-        # input("GO ON!")
-        return
+        print()
 
 
 def parse_segments():
@@ -407,7 +470,6 @@ def parse_segments():
 
         return
 
-
 def find_possible_axis():
 
     axis = []
@@ -438,28 +500,10 @@ def find_possible_axis():
                     pass
 
 
-
-
-def text_blocks():
-    import pandas as pd
-    doc = mongodb.get_document("financial_data", "0000764065") # clf cik
-
-    for m in doc["facts"]["us-gaap"]:
-        print(m.lower())
-        # if "text" in m.lower():
-        #     print(m)
-
-    # try:
-    #     data = doc["facts"][tax][measure]["units"][unit]
-    # except:
-    #     return None
-
-    # df = pd.DataFrame(data)
-
 if __name__ == '__main__':
 
     # test_parse_document()
-    # parse_v2()
+    parse_v2()
     # download_submissions_documents("0000764065")
-    parse_segments()
+    # parse_segments()
     # find_possible_axis()

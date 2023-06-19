@@ -53,9 +53,9 @@ def request_yahoo_url(url):
             time.sleep(0.5 * num_retry)
         try:
             response = requests.get(url, headers=hed, proxies=proxies, timeout=20)
-        except SSLError:
+        except requests.exceptions.SSLError:
             pass
-        except ConnectionError:
+        except requests.exceptions.ConnectionError:
             pass
         except ReadTimeout:
             pass

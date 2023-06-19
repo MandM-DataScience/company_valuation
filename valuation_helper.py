@@ -169,15 +169,6 @@ def convert_currencies(currency, financial_currency):
     return fx_rate
 
 def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
-    r_and_d_growth = []
-    for i in range(len(r_and_d) - 1):
-        try:
-            r_and_d_growth.append(r_and_d[i + 1] / r_and_d[i] - 1)
-        except:
-            r_and_d_growth.append(0)
-
-    # first element is the growth between most year and the year before that
-    r_and_d_growth.reverse()
 
     # last element does not amortize this year
     r_and_d_amortization_cy = [sum(i * 1 / r_and_d_amortization_years for i in r_and_d[:-1])]
@@ -190,15 +181,25 @@ def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
     ebit_r_and_d_adj = [r_and_d[-1] - r_and_d_amortization_cy[0]]
     tax_benefit = [ebit_r_and_d_adj[0] * tax_rate]
 
+    while len(r_and_d) < years:
+        r_and_d.insert(0, 0)
+
+    r_and_d_growth = []
+    for i in range(len(r_and_d) - 1):
+        try:
+            r_and_d_growth.append(r_and_d[i + 1] / r_and_d[i] - 1)
+        except:
+            r_and_d_growth.append(0)
+
+    # first element is the growth between most recent year and the year before that
+    r_and_d_growth.reverse()
+
     for i in range(years - 1):
         g = r_and_d_growth[i]
         tax_benefit.append(tax_benefit[-1] / (1 + g))
         ebit_r_and_d_adj.append(ebit_r_and_d_adj[-1] / (1 + g))
         r_and_d_unamortized.append(r_and_d_unamortized[-1] / (1 + g))
         r_and_d_amortization_cy.append(r_and_d_amortization_cy[-1] / (1 + g))
-
-    while len(r_and_d) < years:
-        r_and_d.insert(0, 0)
 
     # reverse order
     for l in [ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy]:
@@ -301,6 +302,11 @@ def get_growth_ttm(ttm_ebit_after_tax, ttm_net_income_adj, mr_equity_adj, mr_deb
                  reinvestment, ttm_dividends, industry_payout):
 
     try:
+        print("ROC LAST")
+        print(ttm_ebit_after_tax)
+        print(mr_debt_adj)
+        print(mr_equity_adj)
+        print(mr_cash_and_securities)
         roc_last = ttm_ebit_after_tax / (mr_debt_adj + mr_equity_adj - mr_cash_and_securities)
     except:
         roc_last = 0
@@ -389,14 +395,21 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
             if i > 0:
                 years_diff += 1
 
+        print("rev_list", rev_list)
+        print("first_revenue", first_revenue)
+
         # Simple CAGR
-        simple_cagr = (rev_list[-1] / first_revenue) ** (1/years_diff) - 1
+        simple_cagr = (rev_list[-1] / first_revenue) ** (1/(years_diff)) - 1
         capped_simple_cagr = max(min(simple_cagr,0.3),-0.2)
+
+        print("simple_cagr", simple_cagr)
+        print("capped_simple_cagr", capped_simple_cagr)
 
         # CAGR from start
         cagr_from_start_list = []
-        for i in range(1, years_diff):
+        for i in range(1, years_diff+1):
             cagr_from_start_list.append((rev_list[first_index+i] / first_revenue) ** (1/i) - 1)
+
 
         abs_cagr_from_start = [abs(x) for x in cagr_from_start_list]
         cagr_from_start_sorted = [x for _, x in sorted(zip(abs_cagr_from_start, cagr_from_start_list), reverse=True)]
@@ -410,10 +423,16 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
         cagr_from_start = value_sum / weight_sum
         capped_cagr_from_start = max(min(cagr_from_start,0.3),-0.2)
 
+        print("cagr_from_start_list", cagr_from_start_list)
+        print("cagr_from_start", cagr_from_start)
+        print("capped_cagr_from_start", capped_cagr_from_start)
+
         # CAGR from end
         cagr_from_end_list = []
-        for i in range(1, years_diff):
+        for i in range(years_diff):
             cagr_from_end_list.append((rev_list[-1] / rev_list[first_index+i]) ** (1 / (years_diff-i)) - 1)
+
+        print("cagr_from_end_list", cagr_from_end_list)
 
         abs_cagr_from_end = [abs(x) for x in cagr_from_end_list]
         cagr_from_end_sorted = [x for _, x in sorted(zip(abs_cagr_from_end, cagr_from_end_list), reverse=True)]
@@ -426,6 +445,9 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
 
         cagr_from_end = value_sum / weight_sum
         capped_cagr_from_end = max(min(cagr_from_end, 0.3), -0.2)
+
+        print("cagr_from_end", cagr_from_end)
+        print("capped_cagr_from_end", capped_cagr_from_end)
 
         cagr_3_values = [capped_simple_cagr, capped_cagr_from_start, capped_cagr_from_end]
         cagr_3_values.sort(reverse=True)
