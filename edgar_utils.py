@@ -53,6 +53,7 @@ def download_cik_ticker_map():
     r["_id"] = "cik_ticker"
     mongodb.upsert_document("cik_ticker", r)
 
+
 def get_df_cik_ticker_map():
     '''
     Create DataFrame from cik ticker document on mongodb.
@@ -67,8 +68,9 @@ def get_df_cik_ticker_map():
     df = pd.DataFrame(cik_ticker["data"], columns=cik_ticker["fields"])
 
     # add leading 0s to cik (always 10 digits)
-    df["cik"] = df.apply(lambda x: "{:010d}".format(x["cik"]), axis=1)
+    df["cik"] = df.apply(lambda x: add_trailing_to_cik(x["cik"]), axis=1)
     return df
+
 
 def company_from_cik(cik):
     '''
@@ -270,6 +272,11 @@ def get_filing_from_index(url):
     table = soup.find("table", {"class":"tableFile", "summary":"Document Format Files"})
     return table.find("a")["href"]
 
+
+def add_trailing_to_cik(cik_no_trailing):
+    return "{:010d}".format(cik_no_trailing)
+
+
 def get_latest_filings(form_type, start_date):
 
     """
@@ -284,7 +291,7 @@ def get_latest_filings(form_type, start_date):
     """
 
     start_idx = 0
-    entries_per_request = 5
+    entries_per_request = 100
     done = False
 
     cik_df = get_df_cik_ticker_map()
@@ -293,7 +300,7 @@ def get_latest_filings(form_type, start_date):
     while not done:
         url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type={form_type}&datea={start_date}&" \
               f"start={start_idx}&count={entries_per_request}&output=atom"
-
+        print(f"{url}")
         response = make_edgar_request(url)
 
         soup = BeautifulSoup(response.text, 'xml')
@@ -304,14 +311,15 @@ def get_latest_filings(form_type, start_date):
             done = True
 
         for entry in entries:
-
-            cik = entry.find("id").text.split(":")[-1].split("=")[-1].split("-")[0]
+            index_url = entry.find("link")["href"]
+            entry_form_type = entry.find("category")["term"]
+            start_cik = index_url.find('data/') + 5
+            end_cik = index_url.find('/', start_cik)
+            cik = add_trailing_to_cik(int(index_url[start_cik: end_cik]))
 
             if cik not in ciks:
                 print(f"{cik} not present in cik map - skip")
                 continue
-
-            index_url = entry.find("link")["href"]
 
             url = get_filing_from_index(index_url)
             url = f"https://www.sec.gov/{url.replace('/ix?doc=/','')}"
@@ -320,13 +328,16 @@ def get_latest_filings(form_type, start_date):
             if mongodb.check_document_exists("documents", url):
                 continue
 
-            download_document(url, cik, form_type, start_date)
+            download_document(url, cik, entry_form_type, start_date)
 
-            if form_type in ["10-Q", "10-K"]:
+            if entry_form_type in ["10-Q", "10-Q/A" "10-K", "10-K/A"]:
                 download_financial_data(cik)
 
         start_idx += entries_per_request
 
-# get_latest_filings("10-Q", "2023-05-01")
-# download_all_cik_submissions("0001326801")
-# download_submissions_documents("0001326801")
+
+if __name__ == '__main__':
+    get_latest_filings("10-K", "2023-05-25")
+    # download_cik_ticker_map()
+    # download_all_cik_submissions("0001326801")
+    # download_submissions_documents("0001326801")

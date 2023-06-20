@@ -1,18 +1,19 @@
 import json
 import os
+import re
 import time
 from datetime import datetime
 
 import Levenshtein as Levenshtein
-from bs4 import BeautifulSoup
-from selenium import webdriver
+from bs4 import BeautifulSoup, NavigableString
+from unidecode import unidecode
 
 import mongodb
 from edgar_utils import company_from_cik, AAPL_CIK, download_submissions_documents, download_all_cik_submissions
 import string
 
-def parse_10_K(soup):
 
+def parse_10_K(soup):
     section = None
     next_section = False
     result = {}
@@ -59,7 +60,6 @@ def parse_10_K(soup):
         #             break
         #
         #         result[section] += t.strip()
-
 
     return result
 
@@ -123,7 +123,6 @@ def get_section_name(soup, hrefs):
 
 
 def test_parse_document():
-
     from bs4 import BeautifulSoup, Tag
 
     import mongodb
@@ -193,7 +192,7 @@ def test_parse_document():
 
                 # GET NEW SECTION
                 print(current_tag)
-                c +=1
+                c += 1
                 if c > 2000:
                     break
                 if current_tag and isinstance(current_tag, Tag):
@@ -208,7 +207,6 @@ def test_parse_document():
                                 print(f"section in chidlren {section}")
                                 break
 
-
             with open(f"results/{doc['cik']}.json", "w+", encoding="utf-8") as f:
                 f.write(json.dumps(result))
 
@@ -216,14 +214,47 @@ def test_parse_document():
         # break
     # print(result)
 
+
 def string_similarity_percentage(string1, string2):
-    distance = Levenshtein.distance(string1.replace(" ",""), string2.replace(" ",""))
+    distance = Levenshtein.distance(string1.replace(" ", ""), string2.replace(" ", ""))
     max_length = max(len(string1), len(string2))
     similarity_percentage = (1 - (distance / max_length)) * 100
     return similarity_percentage
 
-def get_all_sections(soup, THRESHOLD=50):
 
+def clean_section_title(title):
+    # lower case
+    title = title.lower()
+    # remove special html characters
+    title = unidecode(title)
+    # remove item
+    title = title.replace("item ", "")
+    # remove '1.' etc
+    for idx in range(20, 0, -1):
+        for let in ['', 'a', 'b', 'c']:
+            title = title.replace(f"{idx}{let}.", "")
+    # remove parentesis and strip
+    title = re.sub(r'\([^)]*\)', '', title).strip(string.punctuation + string.whitespace)
+
+    return title
+
+
+def is_title_valid(text):
+    valid = not (
+            text.startswith("item") or
+            text.startswith("part") or
+            text.startswith("signature") or
+            text.isdigit() or
+            len(text) <= 2)
+    # print(f"\n ############################ '{text}' == {valid}")
+    # print(f"start with item {text.startswith('item ')}")
+    # print(f"start with part {text.startswith('part ')}")
+    # print(f"is digit {text.isdigit()}")
+    # print(f"is empty {len(text) <= 2}")
+    return valid
+
+
+def get_all_sections(soup, THRESHOLD=50):
     import re
     tables = soup.body.findAll("table")
     chosen_table = None
@@ -250,33 +281,24 @@ def get_all_sections(soup, THRESHOLD=50):
                 a = tr.find_all("a")[0]
             except:
                 continue
-
             href = a['href'][1:]
-
             for el in tr.children:
                 text = el.text
+                text = clean_section_title(text)
 
-                # remove text in parentheses + strip
-                text = re.sub(r'\([^)]*\)', '', text).strip(string.punctuation + string.whitespace)
-
-                if text.lower().startswith("item") \
-                        or text.lower().startswith("part ")\
-                        or text.isdigit()\
-                        or text == "":
-                    continue
-                else:
-                    sections[num_section] = {"title": text.lower(), "href":href}
+                if is_title_valid(text):
+                    sections[num_section] = {"title": text, "href": href}
                     num_section += 1
+                else:
+                    continue
 
         # print(sections)
 
         for s in sections:
-
             h = sections[s]["href"]
-
             h_tag = soup.find(id=h)
             if h_tag is None:
-                h_tag = soup.find_all(attrs={"name":h})[0]
+                h_tag = soup.find_all(attrs={"name": h})[0]
 
             # print(sections[s], "=>", h_tag)
 
@@ -284,19 +306,19 @@ def get_all_sections(soup, THRESHOLD=50):
                 h_tag = h_tag.parent
 
             # print(h, hrefs[h], "=>", h_tag)
-
             found = False
             while not found:
+                h_tag_text = unidecode(h_tag.text.lower())
+                similarity = string_similarity_percentage(sections[s]["title"], h_tag_text)
 
-                h_tag = h_tag.next_sibling
-                similarity = string_similarity_percentage(sections[s]["title"], h_tag.text.lower())
-
-                if sections[s]["title"] in h_tag.text.lower() or similarity > THRESHOLD:
+                if sections[s]["title"] in h_tag_text or similarity > THRESHOLD:
                     found = True
                     sections[s]["start_el"] = h_tag
                     # print(f"FOUND ({sections[s]['title']}) in {h_tag.text} ({similarity})")
                 # else:
-                    # print(f"not found ({sections[s]['title']}) in {h_tag.text} ({similarity})")
+                # print(f"not found ({sections[s]['title']}) in {h_tag.text} ({similarity})")
+
+                h_tag = h_tag.next_sibling
 
             # print(sections[s], "=>", h_tag)
 
@@ -311,20 +333,18 @@ def get_all_sections(soup, THRESHOLD=50):
 
         keys = list(sections.keys())
         for i, k in enumerate(keys):
-            if i < len(keys)-1:
-                sections[k]["end_el"] = sections[keys[i+1]]["start_el"]
+            if i < len(keys) - 1:
+                sections[k]["end_el"] = sections[keys[i + 1]]["start_el"]
 
     return sections
 
 
 def parse_v2():
-
     from bs4 import BeautifulSoup, Tag
 
     import mongodb
-    import re
     docs = mongodb.get_collection_documents("documents")
-    skip = True
+    skip = False
 
     for doc in docs:
 
@@ -335,33 +355,37 @@ def parse_v2():
         html = doc["html"]
 
         if form_type != "10-K":
+            # print("continue because form type")
             continue
 
-        if doc['_id'] == "https://www.sec.gov/Archives/edgar/data/2488/000000248823000047/amd-20221231.htm":
+        if doc['_id'] == "https://www.sec.gov/Archives/edgar/data/108385/000010838523000022/wrld-20230331.htm":
             skip = False
 
         if skip:
+            # print("continue because skip")
             continue
 
+        input("NEXT")
+        print(url)
         company_info = company_from_cik(cik)
 
         # no cik in cik_map
         if company_info is None:
+            print("continue because company info None")
             continue
 
+        print(f"form type: \t\t{form_type}")
         print(company_info)
-        print(form_type)
-        print(url)
 
         # with open(f"{doc['cik']}.html", "w+", encoding="utf-8") as f:
         #     f.write(html)
 
         soup = BeautifulSoup(html, features="html.parser")
-
         # href_in_table = find_summary_table(soup)
         # print(doc["cik"], len(href_in_table))
 
         if soup.body is None:
+            print("continue because soup.body None")
             continue
 
         # all_text = soup.body.text.strip()
@@ -383,11 +407,12 @@ def parse_v2():
                     text += el.text
                     el = el.next_sibling
 
-            sections[s]["text"] = text
+            sections[s]["text"] = unidecode(text)
 
             print(sections[s]["title"], len(sections[s]["text"]))
 
         print()
+    print("END")
 
 
 def parse_segments():
@@ -470,8 +495,8 @@ def parse_segments():
 
         return
 
-def find_possible_axis():
 
+def find_possible_axis():
     axis = []
 
     docs = mongodb.get_collection_documents("documents")
@@ -500,10 +525,481 @@ def find_possible_axis():
                     pass
 
 
-if __name__ == '__main__':
+def get_all_sections_v3(soup):
+    """
+    Retrieve sections in html text. A section has a title string and start tag element.
+    :param soup:
+    :return:
+    """
+    import re
+    tables = soup.body.findAll("table")
+    chosen_table = None
+    max_table = 0
+    num_section = 1
+    sections = {}
 
+    for t in tables:
+        count = 0
+
+        for s in list_items_strings:
+            r = t.find(string=re.compile(f'{s}', re.IGNORECASE))
+            if r is not None:
+                count += 1
+
+        if count > max_table:
+            chosen_table = t
+            max_table = count
+
+    if chosen_table is not None:
+        for tr in chosen_table.findAll("tr"):
+            try:
+                a = tr.find_all("a")[0]
+            except:
+                continue
+            href = a['href'][1:]
+            for el in tr.children:
+                text = el.text
+                text = clean_section_title(text)
+
+                if is_title_valid(text):
+                    sections[num_section] = {"title": text, "href": href}
+                    num_section += 1
+                else:
+                    continue
+
+        # print(sections)
+
+        for s in sections:
+            h = sections[s]["href"]
+            h_tag = soup.find(id=h)
+
+            if h_tag is None:
+                h_tag = soup.find_all(attrs={"name": h})[0]
+
+            sections[s]["start_el"] = h_tag
+            sections[s]["idx"] = h_tag.sourceline + h_tag.sourcepos
+
+        sections = dict(sorted(sections.items(), key=lambda x: x[1]["idx"]))
+
+        keys = list(sections.keys())
+        for i, k in enumerate(keys):
+            if i < len(keys) - 1:
+                sections[k]["end_el"] = sections[keys[i + 1]]["start_el"]
+    return sections
+
+
+def identify_table_of_contents(soup):
+    max_table = 0
+    chosen_table = None
+    tables = soup.body.findAll("table")
+    for t in tables:
+        count = 0
+
+        for s in list_items_strings:
+            r = t.find(string=re.compile(f'{s}', re.IGNORECASE))
+            if r is not None:
+                count += 1
+
+        if count > max_table:
+            chosen_table = t
+            max_table = count
+    return chosen_table
+
+
+def get_sections_using_hrefs(soup, chosen_table):
+    """
+    Scan the chosen_table aka TABLE of CONTENTS and identify all hrefs.
+    With this, the method create a dictionary of sections by finding tag elements referenced inside soup with the specific hrefs
+    :param soup:
+    :param chosen_table:
+    :return: section dictionary
+    """
+    all_elements = soup.find_all()
+    hrefs = {}
+    sections = {}
+    for tr in chosen_table.findAll("tr"):
+        try:
+            aa = tr.find_all("a")
+            tr_hrefs = [a['href'][1:] for a in aa]
+        except:
+            continue
+
+        for el in tr.children:
+            text = el.text
+            text = clean_section_title(text)
+
+            if is_title_valid(text):
+                for tr_href in tr_hrefs:
+                    if tr_href not in hrefs:
+                        h_tag = soup.find(id=tr_href)
+                        if h_tag:
+                            hrefs[tr_href] = {
+                                'start_el': h_tag,
+                                'idx': all_elements.index(h_tag),
+                                'title': None,
+                                'title_candidates': set([text])}
+                    else:
+                        hrefs[tr_href]['title_candidates'].add(text)
+            else:
+                continue
+
+    for h in hrefs:
+        hrefs[h]['title_candidates'] = list(hrefs[h]['title_candidates'])
+        if len(hrefs[h]['title_candidates']) == 1:
+            hrefs[h]['title'] = hrefs[h]['title_candidates'][0]
+
+    temp_s = sorted(hrefs.items(), key=lambda x: x[1]["idx"])
+
+    for i, s in enumerate(temp_s):
+        sections[i + 1] = s[1]
+        if i > 0:
+            sections[i]["end_el"] = sections[i + 1]["start_el"]
+
+    return sections
+
+
+def get_sections_using_strings(soup, chosen_table):
+    print("GET SECTIONS USING STRINGS")
+    sections = {}
+    for tr in chosen_table.findAll("tr"):
+
+        # tr_text = unidecode(tr.text.lower().strip(string.punctuation + string.whitespace).replace("\n", " "))
+        # tr_text = re.sub(' +', ' ', tr_text)
+        # while tr_text[-1].isdigit():
+        #     tr_text = tr_text[:-1]
+        # tr_text = tr_text.strip()
+        # print(f"'{tr_text}'")
+        # has_item = 'item' in tr_text
+        # if has_item:
+        #     reg_text = tr_text
+        #     if '.' in tr_text:
+        #         reg_text = reg_text.replace(".", "\.")
+        #
+        #     reg_text = reg_text.replace(" ", "*")
+        #
+        #     items_found = soup.find_all(string=re.compile(fr'{reg_text}', re.IGNORECASE))
+        #     print(f"TEXT: {reg_text} --> {items_found}")
+        #     input("next")
+
+        for el in tr.children:
+            text = unidecode(el.text.lower().strip(string.punctuation + string.whitespace))
+            # if text starts with Item
+            # print(f"'{text}' --> {'item' in text}")
+            has_item = 'item' in text
+            if has_item:
+                reg_text = text
+                if '.' in text:
+                    reg_text = text
+                items_found = soup.find_all(string=re.compile(fr'\b{reg_text}\b', re.IGNORECASE))
+                print(f"TEXT: {text} --> {items_found}")
+                # for item_found in items_found:
+                if len(items_found) == 2:
+                    print(text, items_found[1])
+                input("next")
+
+    return sections
+
+
+def get_all_sections_v4(soup):
+    """
+    Retrieve sections in html text. A section has a title string and start tag element.
+    :param soup:
+    :return: a dictionary with the following structure:
+        {1:
+            {
+                'start_el': tag element where the section starts,
+                'idx': an integer index of start element inside soup, used for ordering
+                'title': a string representing the section title,
+                'title_candidates': a list of title candidates. If there is a single candidate that becomes the title
+                'end_el': tag element where the section ends
+            },
+        ...
+        }
+        Section are ordered based on chid['idx'] value
+    """
+
+    chosen_table = identify_table_of_contents(soup)
+    sections = {}
+
+    if chosen_table is not None:
+        sections = get_sections_using_hrefs(soup, chosen_table)
+
+        if len(sections) == 0:
+            # TODO try retrieve sections with table of contents using strings instead of hrefs
+            sections = get_sections_using_strings(soup, chosen_table)
+
+    return sections
+
+
+def parse_v3():
+    from bs4 import BeautifulSoup, Tag
+
+    import mongodb
+    docs = mongodb.get_collection_documents("documents")
+    skip = True
+
+    for doc in docs:
+
+        url = doc["_id"]
+        cik = doc["cik"]
+        form_type = doc["form_type"]
+        filing_date = doc["filing_date"]
+        html = doc["html"]
+
+        if form_type != "10-K":
+            # print("continue because form type")
+            continue
+
+        if doc['_id'] == "https://www.sec.gov/Archives/edgar/data/1302215/000130221523000031/hli-20230331.htm":
+            skip = False
+
+        if skip:
+            # print("continue because skip")
+            continue
+
+        print(url)
+        company_info = company_from_cik(cik)
+
+        # no cik in cik_map
+        if company_info is None:
+            print("continue because company info None")
+            continue
+
+        print(f"form type: \t\t{form_type}")
+        print(company_info)
+
+        # with open(f"{doc['cik']}.html", "w+", encoding="utf-8") as f:
+        #     f.write(html)
+
+        soup = BeautifulSoup(html, features="html.parser")
+        # href_in_table = find_summary_table(soup)
+        # print(doc["cik"], len(href_in_table))
+
+        if soup.body is None:
+            print("continue because soup.body None")
+            continue
+
+        sections = get_all_sections_v3(soup)
+
+        # print(sections)
+        next_section = 1
+        current_section = None
+        text = ""
+        last_was_new_line = False
+        for el in soup.body.descendants:
+            if next_section in sections and el == sections[next_section]['start_el']:
+                if current_section is not None:
+                    # print(f"END {sections[current_section]['title']}")
+                    sections[current_section]["text"] = text
+                    text = ""
+                    last_was_new_line = False
+                    # input("NEXT SECTION")
+
+                current_section = next_section
+                next_section += 1
+                # print(f"START {sections[current_section]['title']}")
+
+            if current_section is not None and isinstance(el, NavigableString):
+                if last_was_new_line and el.text == "\n":
+                    continue
+                elif el.text == "\n":
+                    last_was_new_line = True
+                else:
+                    last_was_new_line = False
+                text += unidecode(el.text)
+
+        sections[current_section]["text"] = text
+        for s in sections:
+            if "text" in sections[s]:
+                print(sections[s]["title"], sections[s]["start_el"], sections[s]["end_el"], len(sections[s]["text"]))
+            else:
+                end_el = None
+                if "end_el" in sections[s]:
+                    end_el = sections[s]["end_el"]
+                print(f'\n{sections[s]["title"]} | {sections[s]["start_el"]} | {end_el} | has no TEXT')
+        print()
+        input("NEXT")
+
+    print("END")
+
+
+def parse_v4():
+    from bs4 import BeautifulSoup, Tag
+
+    import mongodb
+    docs = mongodb.get_collection_documents("documents")
+    count = mongodb.get_collection("documents").count_documents({})
+    skip = True
+    enable_print = False
+    to_test = [
+        "https://www.sec.gov/Archives/edgar/data/1019034/000143774923016374/bkyi20221231_10k.htm",
+        "https://www.sec.gov/Archives/edgar/data/69733/000143774923016924/nath20230326_10k.htm",
+        "https://www.sec.gov/Archives/edgar/data/88948/000143774923017258/senea20230331_10k.htm",
+    ]
+    _10k_no_sections = []
+    _10k_no_text = []
+    with_exception = []
+
+    for i, doc in enumerate(docs):
+        # print(f"{i}/{count}")
+        url = doc["_id"]
+        form_type = doc["form_type"]
+        sections = {}
+        try:
+            cik = doc["cik"]
+            filing_date = doc["filing_date"]
+            html = doc["html"]
+
+            if form_type not in ["10-K", "10-K/A"]:
+                # print("continue because form type")
+                continue
+
+            if doc['_id'] in to_test:
+                skip = False
+                enable_print = True
+            else:
+                skip = True
+
+            if skip:
+                # print("continue because skip")
+                continue
+
+            print(url)
+            company_info = company_from_cik(cik)
+
+            # no cik in cik_map
+            if company_info is None:
+                print("continue because company info None")
+                continue
+
+            print(f"form type: \t\t{form_type}")
+            print(company_info)
+
+            # with open(f"{doc['cik']}.html", "w+", encoding="utf-8") as f:
+            #     f.write(html)
+
+            soup = BeautifulSoup(html, features="html.parser")
+            # href_in_table = find_summary_table(soup)
+            # print(doc["cik"], len(href_in_table))
+
+            if soup.body is None:
+                print("continue because soup.body None")
+                continue
+
+            sections = get_all_sections_v4(soup)
+            # print(sections)
+            next_section = 1
+            current_section = None
+            text = ""
+            last_was_new_line = False
+            for el in soup.body.descendants:
+                if next_section in sections and el == sections[next_section]['start_el']:
+                    if current_section is not None:
+                        # print(f"END {current_section} | {sections[current_section]['title']}")
+                        sections[current_section]["text"] = text
+                        text = ""
+                        last_was_new_line = False
+                        # input("NEXT SECTION")
+
+                    current_section = next_section
+                    next_section += 1
+                    # print(f"START {current_section} | {sections[current_section]['title']}")
+
+                if current_section is not None and isinstance(el, NavigableString):
+                    if last_was_new_line and el.text == "\n":
+                        continue
+                    elif el.text == "\n":
+                        last_was_new_line = True
+                    else:
+                        last_was_new_line = False
+                    found_text = unidecode(el.text)
+                    if sections[current_section]['title'] is None:
+                        if found_text in sections[current_section]['title_candidates']:
+                            print(f"{bcolors.OKCYAN}"
+                                  f'new title for {current_section}: {found_text} in {sections[current_section]["title_candidates"]}'
+                                  f"{bcolors.ENDC}")
+                            sections[current_section]['title'] = found_text
+                    text += found_text
+
+            if current_section is None:
+                if "/A" in form_type:
+                    print(f"{bcolors.OKGREEN}"
+                          f'{url} - {form_type} with no SECTIONS'
+                          f"{bcolors.ENDC}")
+                else:
+                    print(f"{bcolors.FAIL}"
+                          f'{url} - {form_type} with NO SECTIONS'
+                          f"{bcolors.ENDC}")
+                    _10k_no_sections.append(url)
+            else:
+                sections[current_section]["text"] = text
+
+            for s in sections:
+                if 'text' not in sections[s]:
+                    print(f"{bcolors.FAIL}"
+                          f'{url} - {form_type} with NO TEXT'
+                          f"{bcolors.ENDC}")
+                    _10k_no_text.append(url)
+        except Exception as e:
+            print(f"{bcolors.FAIL}"
+                  f'{url} - {form_type} with EXCEPTION'
+                  f"{bcolors.ENDC}")
+            with_exception.append((url, e))
+            raise (e)
+
+        # print results
+        if enable_print:
+            for s in sections:
+                end_el = None
+                if "end_el" in sections[s]:
+                    end_el = sections[s]["end_el"]
+                if "text" in sections[s]:
+                    sc = ''
+                    ec = ''
+                    if sections[s]['title'] is None:
+                        sc = f"{bcolors.OKBLUE}"
+                        ec = f"{bcolors.ENDC}"
+                    print(sc, sections[s]["idx"], s, sections[s]["title"], sections[s]["title_candidates"],
+                          sections[s]["start_el"], end_el, len(sections[s]["text"]), ec)
+                else:
+                    print(f"{bcolors.WARNING}"
+                          f' {sections[s]["idx"]} | {s} |{sections[s]["title"]} | {sections[s]["start_el"]} | {end_el} | has no TEXT'
+                          f"{bcolors.ENDC}")
+        print()
+        input("NEXT")
+
+    print("10K NO SECTIONS")
+    for ns in _10k_no_sections:
+        print(ns)
+
+    print("10K NO TEXT")
+    for ns in _10k_no_text:
+        print(ns)
+
+    print("WITH EXCEPTION")
+    for ns in with_exception:
+        print(ns)
+
+    print("END")
+
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
+if __name__ == '__main__':
     # test_parse_document()
-    parse_v2()
+    # parse_v2()
     # download_submissions_documents("0000764065")
     # parse_segments()
     # find_possible_axis()
+    # parse_v3()
+    parse_v4()
