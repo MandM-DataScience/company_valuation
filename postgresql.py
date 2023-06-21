@@ -1,3 +1,4 @@
+import math
 from configparser import ConfigParser
 import os
 from datetime import datetime
@@ -11,11 +12,11 @@ from investing_com import get_10y_bond_yield
 import numpy as np
 
 country_to_region = {
-    "Cyprus": "EU",
+    "Cyprus": "Europe",
     "Macau": "China",
     "IsleofMan": "Global",
     "BritishVirginIslands": "Global",
-    "Greece": "EU",
+    "Greece": "Europe",
     "Cambodia": "emerg",
     "Malaysia": "emerg",
     "Bermuda": "emerg",
@@ -25,21 +26,21 @@ country_to_region = {
     "Japan": "Japan",
     "Australia": "Rest",
     "NewZealand": "Rest",
-    "Austria": "EU",
-    "Belgium": "EU",
-    "Denmark": "EU",
-    "Finland": "EU",
-    "France": "EU",
-    "Germany": "EU",
-    "Ireland": "EU",
-    "Italy": "EU",
-    "Luxembourg": "EU",
-    "Netherlands": "EU",
-    "Portugal": "EU",
-    "Spain": "EU",
-    "Sweden": "EU",
-    "Switzerland": "EU",
-    "UnitedKingdom": "EU",
+    "Austria": "Europe",
+    "Belgium": "Europe",
+    "Denmark": "Europe",
+    "Finland": "Europe",
+    "France": "Europe",
+    "Germany": "Europe",
+    "Ireland": "Europe",
+    "Italy": "Europe",
+    "Luxembourg": "Europe",
+    "Netherlands": "Europe",
+    "Portugal": "Europe",
+    "Spain": "Europe",
+    "Sweden": "Europe",
+    "Switzerland": "Europe",
+    "UnitedKingdom": "Europe",
     "China": "China",
     "HongKong": "China",
     "Taiwan": "China",
@@ -65,10 +66,10 @@ country_to_region = {
     "Turkey": "emerg",
     "SouthKorea": "Japan",
     "SouthAfrica": "emerg",
-    "Iceland": "EU",
-    "Liechtenstein": "EU",
-    "Monaco": "EU",
-    "Norway": "EU",
+    "Iceland": "Europe",
+    "Liechtenstein": "Europe",
+    "Monaco": "Europe",
+    "Norway": "Europe",
     "SaudiArabia": "emerg",
 
 
@@ -80,7 +81,7 @@ country_to_region = {
     "Eastern Europe & Russia":"emerg",
     "Middle East":"emerg",
     "North America":"US",
-    "Western Europe":"EU",
+    "Western Europe":"Europe",
     "Global":"Global"
 
 }
@@ -368,7 +369,9 @@ def get_industry_parameter(df, industry, region, parameter, debug=True):
     except:
         pass
 
-    if value is None:
+    # print(industry, region, parameter, value)
+
+    if value is None or math.isnan(value):
         if region in region_waterfall:
             if debug:
                 print("value not found for ", industry, region, parameter)
@@ -465,9 +468,9 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
         sales_capital_5y = industry_sales_capital
 
     for i in range(len(revenue)):
-        try:
+        if revenue[i] > 0:
             operating_margin.append(ebit_adj[i] / revenue[i])
-        except:
+        else:
             operating_margin.append(0)
 
         if (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)) > 0:
@@ -481,18 +484,18 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
             else:
                 sales_capital.append(sales_capital_5y)
         except:
-            sales_capital.append(0)
+            sales_capital.append(sales_capital_5y)
 
     weights = [x+1 for x in range(len(revenue))]
     sum_weights = sum(weights)
 
-    print(debt_bv_adj)
-    print(debt_mkt)
-    print(mr_debt_adj)
-    print(equity_bv_adj)
-    print(equity_mkt)
-    print(mr_equity_adj)
-    print(debt_equity)
+    # print(debt_bv_adj)
+    # print(debt_mkt)
+    # print(mr_debt_adj)
+    # print(equity_bv_adj)
+    # print(equity_mkt)
+    # print(mr_equity_adj)
+    # print(debt_equity)
 
     om_company = sum(i[0] * i[1] for i in zip(operating_margin, weights)) / sum_weights
     de_company = sum(i[0] * i[1] for i in zip(debt_equity, weights)) / sum_weights
@@ -511,6 +514,9 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
     target_operating_margin = om_industry_weight * industry_operating_margin + (1 - om_industry_weight) * om_company
 
     print("DEBUG TARGETS")
+    print(sales_capital)
+    print(operating_margin)
+    print(debt_equity)
     print("sc_company",sc_company,"industry_sales_capital",industry_sales_capital,"std_sc_company",std_sc_company,"sc_industry_weight",sc_industry_weight,"target_sales_capital",target_sales_capital)
     print("om_company",om_company,"industry_operating_margin",industry_operating_margin,"std_om_company",std_om_company,"om_industry_weight",om_industry_weight,"target_operating_margin",target_operating_margin)
     print("de_company",de_company,"industry_debt_equity",industry_debt_equity,"std_de_company",std_de_company,"de_industry_weight",de_industry_weight,"target_debt_equity",target_debt_equity)

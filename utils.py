@@ -5,10 +5,9 @@ from datetime import datetime
 
 import Levenshtein as Levenshtein
 from bs4 import BeautifulSoup
-from selenium import webdriver
 
 import mongodb
-from edgar_utils import company_from_cik, AAPL_CIK, download_submissions_documents, download_all_cik_submissions
+from edgar_utils import company_from_cik
 import string
 
 def parse_10_K(soup):
@@ -384,7 +383,6 @@ def parse_v2():
                     el = el.next_sibling
 
             sections[s]["text"] = text
-
             print(sections[s]["title"], len(sections[s]["text"]))
 
         print()

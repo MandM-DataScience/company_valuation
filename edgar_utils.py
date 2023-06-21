@@ -13,6 +13,7 @@ CIK_TICKER_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 AAPL_CIK = "0000320193"
 BABA_CIK = "0001577552"
 ATKR_CIK = "0001666138"
+META_CIK = "0001326801"
 _8K_URL = "https://www.sec.gov/Archives/edgar/data/320193/000114036123023909/ny20007635x4_8k.htm"
 
 def make_edgar_request(url):
@@ -330,3 +331,4 @@ def get_latest_filings(form_type, start_date):
 # get_latest_filings("10-Q", "2023-05-01")
 # download_all_cik_submissions("0001326801")
 # download_submissions_documents("0001326801")
+download_financial_data("0001326801")

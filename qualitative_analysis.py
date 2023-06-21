@@ -145,7 +145,7 @@ def geography_distribution(segments, ticker):
     df = pd.DataFrame(segments)
 
     if df.empty:
-        return
+        return df
 
     df["segment"] = df["segment"].astype(str)
 
