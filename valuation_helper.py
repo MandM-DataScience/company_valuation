@@ -389,7 +389,7 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
                     unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity):
 
     cagr = None
-    if ttm_revenue != revenue[-1]:
+    if abs(ttm_revenue/revenue[-1] - 1) > 0.0001:
         ttm = True
     else:
         ttm = False

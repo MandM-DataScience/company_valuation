@@ -437,9 +437,10 @@ def extract_shares(doc, quarter_of_annual_report, years_diff):
     try:
         yearly_shares = get_yearly_values_from_df(df, instant=True, quarter_of_annual_report=quarter_of_annual_report,
         years_diff=years_diff)
-        if yearly_shares is None:
-            merge_subsets_yearly(yearly_common_shares, [yearly_average_shares])
-            yearly_shares = yearly_common_shares
+
+        merge_subsets_yearly(yearly_common_shares, [yearly_average_shares])
+        merge_subsets_yearly(yearly_shares, [yearly_common_shares])
+
     except:
         merge_subsets_yearly(yearly_common_shares, [yearly_average_shares])
         yearly_shares = yearly_common_shares
@@ -2386,9 +2387,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("Dividends Deviation", div_delta)
         print("Status", status)
 
-    return price_per_share, fcff_value, div_value, fcff_delta, div_delta, status
-
+    return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
 if __name__ == '__main__':
-    cik = cik_from_ticker("META")
+    cik = cik_from_ticker("LAZY")
     valuation(cik, debug=True, years=6)

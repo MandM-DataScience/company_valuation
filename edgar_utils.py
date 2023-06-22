@@ -92,7 +92,12 @@ def cik_from_ticker(ticker):
     :return: cik (company id on edgar)
     '''
     df = get_df_cik_ticker_map()
-    return df[df["ticker"] == ticker]["cik"].iloc[0]
+
+    try:
+        cik = df[df["ticker"] == ticker]["cik"].iloc[0]
+    except:
+        cik = -1
+    return cik
 
 def download_all_cik_submissions(cik):
     '''
