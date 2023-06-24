@@ -1509,7 +1509,8 @@ def extract_balance_sheet_equity(doc, last_annual_report_date, last_annual_repor
 
     merge_subsets_yearly(yearly_equity, [yearly_equity_no_mi, yearly_minority_interest], (0,))
 
-    if most_recent_equity["date"] is None or most_recent_equity_no_mi["date"] > most_recent_equity["date"]:
+    if most_recent_equity["date"] is None or \
+            (most_recent_equity_no_mi["date"] is not None and most_recent_equity_no_mi["date"] > most_recent_equity["date"]):
         merge_subsets_most_recent(most_recent_equity, [most_recent_equity_no_mi, most_recent_minority_interest])
 
     return {
@@ -2390,5 +2391,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
 if __name__ == '__main__':
-    cik = cik_from_ticker("LAZY")
-    valuation(cik, debug=True, years=6)
+    cik = cik_from_ticker("AAON")
+    if cik != -1:
+        valuation(cik, debug=True, years=6)

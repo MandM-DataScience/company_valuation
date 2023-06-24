@@ -289,7 +289,7 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
             # update helper_interest
             int_exp_op_adj = leases[0] * (1 - 1 / (1 + cost_of_debt))
 
-        print(interest_coverage_ratio, spread, company_default_spread, cost_of_debt)
+        # print(interest_coverage_ratio, spread, company_default_spread, cost_of_debt)
 
     ebit_op_adj = [ttm_ebit_op_adj]
     tax_benefit_op = [ebit_op_adj[0] * tax_rate]
@@ -960,6 +960,7 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_
 def summary_valuation(valuations):
 
     sorted = valuations.copy()
+    sorted = [0 for x in sorted if math.isnan(x) else x]
     sorted.sort()
 
     count_negative = 0
