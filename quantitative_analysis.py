@@ -2093,8 +2093,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     mr_original_min_interest = data["mr_minority_interest"]["value"] / 1000
     mr_minority_interest = mr_original_min_interest * pbv
 
-    print("PBV", pbv)
-    print(mr_minority_interest)
+    # print("PBV", pbv)
+    # print(mr_minority_interest)
 
     mr_tax_benefits = data["mr_tax_benefits"]["value"] / 1000
     mr_sbc = data["mr_sbc"]["value"] / 1000

@@ -513,12 +513,12 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
     target_debt_equity = de_industry_weight * industry_debt_equity + (1 - de_industry_weight) * de_company
     target_operating_margin = om_industry_weight * industry_operating_margin + (1 - om_industry_weight) * om_company
 
-    print("DEBUG TARGETS")
-    print(sales_capital)
-    print(operating_margin)
-    print(debt_equity)
-    print("sc_company",sc_company,"industry_sales_capital",industry_sales_capital,"std_sc_company",std_sc_company,"sc_industry_weight",sc_industry_weight,"target_sales_capital",target_sales_capital)
-    print("om_company",om_company,"industry_operating_margin",industry_operating_margin,"std_om_company",std_om_company,"om_industry_weight",om_industry_weight,"target_operating_margin",target_operating_margin)
-    print("de_company",de_company,"industry_debt_equity",industry_debt_equity,"std_de_company",std_de_company,"de_industry_weight",de_industry_weight,"target_debt_equity",target_debt_equity)
+    # print("DEBUG TARGETS")
+    # print(sales_capital)
+    # print(operating_margin)
+    # print(debt_equity)
+    # print("sc_company",sc_company,"industry_sales_capital",industry_sales_capital,"std_sc_company",std_sc_company,"sc_industry_weight",sc_industry_weight,"target_sales_capital",target_sales_capital)
+    # print("om_company",om_company,"industry_operating_margin",industry_operating_margin,"std_om_company",std_om_company,"om_industry_weight",om_industry_weight,"target_operating_margin",target_operating_margin)
+    # print("de_company",de_company,"industry_debt_equity",industry_debt_equity,"std_de_company",std_de_company,"de_industry_weight",de_industry_weight,"target_debt_equity",target_debt_equity)
 
     return target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity

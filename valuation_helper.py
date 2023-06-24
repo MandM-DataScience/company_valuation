@@ -170,11 +170,11 @@ def convert_currencies(currency, financial_currency):
 
 def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
 
-    print("DEBUG R&D")
-    print(r_and_d)
-    print(r_and_d_amortization_years)
-    print(tax_rate)
-    print(years)
+    # print("DEBUG R&D")
+    # print(r_and_d)
+    # print(r_and_d_amortization_years)
+    # print(tax_rate)
+    # print(years)
 
     # last element does not amortize this year
     r_and_d_amortization_cy = [sum(i * 1 / r_and_d_amortization_years for i in r_and_d[:-1])]
@@ -190,7 +190,7 @@ def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
     while len(r_and_d) < years:
         r_and_d.insert(0, 0)
 
-    print("r_and_d after inserting 0", r_and_d)
+    # print("r_and_d after inserting 0", r_and_d)
 
     r_and_d_growth = []
     for i in range(len(r_and_d) - 1):
@@ -222,13 +222,13 @@ def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
     for l in [ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy]:
         l.reverse()
 
-    print("r_and_d", r_and_d)
-    print("r_and_d_amortization_years", r_and_d_amortization_years)
-    print("r_and_d_growth", r_and_d_growth)
-    print("r_and_d_amortization_cy", r_and_d_amortization_cy)
-    print("r_and_d_unamortized", r_and_d_unamortized)
-    print("ebit_r_and_d_adj", ebit_r_and_d_adj)
-    print("tax_benefit", tax_benefit)
+    # print("r_and_d", r_and_d)
+    # print("r_and_d_amortization_years", r_and_d_amortization_years)
+    # print("r_and_d_growth", r_and_d_growth)
+    # print("r_and_d_amortization_cy", r_and_d_amortization_cy)
+    # print("r_and_d_unamortized", r_and_d_unamortized)
+    # print("ebit_r_and_d_adj", ebit_r_and_d_adj)
+    # print("tax_benefit", tax_benefit)
 
     return ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy
 
@@ -458,16 +458,16 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
         cagr_from_end = value_sum / weight_sum
         capped_cagr_from_end = max(min(cagr_from_end, 0.3), -0.2)
 
-        print("rev_list", rev_list)
-        print("first_revenue", first_revenue)
-        print("simple_cagr", simple_cagr)
-        print("capped_simple_cagr", capped_simple_cagr)
-        print("cagr_from_start_list", cagr_from_start_list)
-        print("cagr_from_start", cagr_from_start)
-        print("capped_cagr_from_start", capped_cagr_from_start)
-        print("cagr_from_end_list", cagr_from_end_list)
-        print("cagr_from_end", cagr_from_end)
-        print("capped_cagr_from_end", capped_cagr_from_end)
+        # print("rev_list", rev_list)
+        # print("first_revenue", first_revenue)
+        # print("simple_cagr", simple_cagr)
+        # print("capped_simple_cagr", capped_simple_cagr)
+        # print("cagr_from_start_list", cagr_from_start_list)
+        # print("cagr_from_start", cagr_from_start)
+        # print("capped_cagr_from_start", capped_cagr_from_start)
+        # print("cagr_from_end_list", cagr_from_end_list)
+        # print("cagr_from_end", cagr_from_end)
+        # print("capped_cagr_from_end", capped_cagr_from_end)
 
         cagr_3_values = [capped_simple_cagr, capped_cagr_from_start, capped_cagr_from_end]
         cagr_3_values.sort(reverse=True)
