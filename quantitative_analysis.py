@@ -490,7 +490,7 @@ def extract_income_statement(doc):
     #### R and D ####
     measures = ["ResearchAndDevelopmentExpense"]
     _, _, yearly_rd = get_values_from_measures(
-        doc, measures, get_ttm=False, get_most_recent=False, debug=True)
+        doc, measures, get_ttm=False, get_most_recent=False, debug=False)
 
     measures = ["ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"]
     _, _, yearly_rd_not_inprocess = get_values_from_measures(
@@ -863,17 +863,17 @@ def extract_balance_sheet_current_assets(doc, quarter_of_annual_report, years_di
         "AvailableForSaleSecurities"]
     most_recent_securities, _, yearly_securities = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["AvailableForSaleSecuritiesDebtSecurities"]
     most_recent_debtsecurities, _, yearly_debtsecurities = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["AvailableForSaleSecuritiesEquitySecurities"]
     most_recent_equitysecurities, _, yearly_equitysecurities = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     merge_subsets_yearly(yearly_securities, [yearly_debtsecurities, yearly_equitysecurities])
     merge_subsets_most_recent(most_recent_securities,
@@ -883,7 +883,7 @@ def extract_balance_sheet_current_assets(doc, quarter_of_annual_report, years_di
                 "DerivativeAssetsCurrent"]
     most_recent_derivatives, _, yearly_derivatives = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["HeldToMaturitySecurities",
                 "HeldToMaturitySecuritiesFairValue",
@@ -891,30 +891,30 @@ def extract_balance_sheet_current_assets(doc, quarter_of_annual_report, years_di
                 ]
     most_recent_held_securities, _, yearly_held_securities = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["AvailableForSaleSecuritiesNoncurrent",
                 "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
                 ]
     most_recent_non_curr_sec, _, yearly_non_curr_sec = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["MarketableSecuritiesCurrent",
                 "AvailableForSaleSecuritiesDebtSecuritiesCurrent"]
     most_recent_marksecurities_cur, _, yearly_marksecurities_cur = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["ShortTermInvestments"]
     most_recent_st_inv, _, yearly_st_inv = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     measures = ["MoneyMarketFundsAtCarryingValue"]
     most_recent_mm, _, yearly_mm = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report, years_diff=years_diff,
-        get_ttm=False, debug=True)
+        get_ttm=False, debug=False)
 
     merge_subsets_yearly(yearly_securities, [yearly_derivatives, yearly_held_securities, yearly_non_curr_sec,
                                              yearly_marksecurities_cur, yearly_st_inv, yearly_mm])
