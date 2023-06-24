@@ -2004,6 +2004,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     equity_bv_adj = [sum(x) for x in zip(equity_bv, r_and_d_unamortized)]
     capex_adj = [sum(x) for x in zip(capex, r_and_d[-years:])]
     depreciation_adj = [sum(x) for x in zip(depreciation, r_and_d_amortization_cy)]
+    ebit_after_tax = [sum(x) for x in zip([x * (1 - tax_rate) for x in ebit_adj], tax_benefit)]
 
     leases = [
         data["mr_op_leases_expense"]["value"] / 1000,
@@ -2014,7 +2015,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         data["mr_op_leases_next_5year"]["value"] / 1000,
         data["mr_op_leases_after_5year"]["value"] / 1000,
     ]
-
     last_year_leases = max([i for i, x in enumerate(leases) if x != 0], default=-1)
 
     if last_year_leases != -1:
@@ -2027,8 +2027,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         mr_debt_adj = mr_debt + debt_adj[-1]
         ebit_adj = [sum(x) for x in zip(ebit_adj, ebit_op_adj)]
         debt_bv_adj = [sum(x) for x in zip(debt_bv, debt_adj)]
-
-        ebit_after_tax = [sum(x) for x in zip([x * (1 - tax_rate) for x in ebit_adj], tax_benefit)]
         ebit_after_tax = [sum(x) for x in zip(ebit_after_tax, tax_benefit_op)]
 
         ttm_ebit_after_tax = ttm_ebit_adj * (1 - tax_rate) + tax_benefit[-1] + tax_benefit_op[-1]
@@ -2043,6 +2041,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         debt_bv_adj = debt_bv
         company_default_spread = get_spread_from_dscr(12.5, damodaran_bond_spread)
         ttm_ebit_after_tax = ttm_ebit_adj * (1 - tax_rate) + tax_benefit[-1]
+
 
     cost_of_debt = riskfree + country_default_spread + company_default_spread
 

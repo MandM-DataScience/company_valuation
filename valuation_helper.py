@@ -6,6 +6,7 @@ from forex_python.converter import CurrencyRates, RatesNotAvailableError
 from urllib3.exceptions import ProtocolError
 import numpy as np
 from yahoo_finance import get_current_price_from_yahoo
+import math
 
 r_and_d_amortization = {
     'Advertising': 2,
@@ -960,7 +961,7 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_
 def summary_valuation(valuations):
 
     sorted = valuations.copy()
-    sorted = [0 for x in sorted if math.isnan(x) else x]
+    sorted = [0 if math.isnan(x) else x for x in sorted]
     sorted.sort()
 
     count_negative = 0
