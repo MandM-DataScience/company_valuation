@@ -2397,6 +2397,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
 if __name__ == '__main__':
-    cik = cik_from_ticker("ACT")
+    cik = cik_from_ticker("ADBE")
     if cik != -1:
         valuation(cik, debug=True, years=6)

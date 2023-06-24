@@ -976,7 +976,7 @@ def summary_valuation(valuations):
     else:
         second_highest = sorted[2]
         third_highest = sorted[1]
-        if second_highest / third_highest > 10:
+        if third_highest == 0 or second_highest / third_highest > 10:
             result = 0
         else:
             max_val = max(sorted)

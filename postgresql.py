@@ -82,7 +82,7 @@ country_to_region = {
     "Middle East":"emerg",
     "North America":"US",
     "Western Europe":"Europe",
-    "Global":"Global"
+    "Global":"Global",
 
 }
 industry_translation = {
