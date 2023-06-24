@@ -72,12 +72,11 @@ def get_ttm_from_df(df):
     # create a copy as we are going to edit and filter it
     ttm_df = df.copy()
 
-    # Keep only annual and quarterly periods
-    ttm_df["period"] = (ttm_df["end"] - ttm_df["start"]).dt.days
-    ttm_df = ttm_df[~(ttm_df.frame.str.contains("Q")) | ((ttm_df.frame.str.contains("Q")) & (ttm_df.period < 100))]
-
     # Get last annual value
     try:
+        # Keep only annual and quarterly periods
+        ttm_df["period"] = (ttm_df["end"] - ttm_df["start"]).dt.days
+        ttm_df = ttm_df[~(ttm_df.frame.str.contains("Q")) | ((ttm_df.frame.str.contains("Q")) & (ttm_df.period < 100))]
         last_yearly_row = ttm_df[ttm_df.period > 100].iloc[-1]
     except:
         return None, None
@@ -412,6 +411,11 @@ def extract_shares(doc, quarter_of_annual_report, years_diff):
 
     df = build_financial_df(doc, "EntityCommonStockSharesOutstanding", unit="shares", tax="dei")
 
+    debug = False
+
+    if debug:
+        print(df.to_markdown())
+
     try:
         most_recent_shares = get_most_recent_value_from_df(df)
     except:
@@ -422,14 +426,14 @@ def extract_shares(doc, quarter_of_annual_report, years_diff):
     mr_common_shares, _, yearly_common_shares = get_values_from_measures(
         doc, measures, instant=True, quarter_of_annual_report=quarter_of_annual_report,
         years_diff=years_diff, get_ttm=False,
-        get_most_recent=True, debug=False, unit="shares")
+        get_most_recent=True, debug=debug, unit="shares")
 
     measures = ["WeightedAverageNumberOfSharesOutstandingBasic"]
 
     mr_average_shares, _, yearly_average_shares = get_values_from_measures(
         doc, measures, instant=False, quarter_of_annual_report=quarter_of_annual_report,
         years_diff=years_diff, get_ttm=False,
-        get_most_recent=True, debug=False, unit="shares")
+        get_most_recent=True, debug=debug, unit="shares")
 
     merge_subsets_most_recent(most_recent_shares, [mr_common_shares])
     merge_subsets_most_recent(most_recent_shares, [mr_average_shares])
@@ -1865,6 +1869,12 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print(data)
         print()
 
+    try:
+        final_year = data["revenue"]["dates"][-1]
+        initial_year = final_year - years + 1
+    except:
+        print(cik, "no revenue")
+
     erp = get_df_from_table("damodaran_erp")
     erp = erp[erp["date"] == erp["date"].max()]["value"].iloc[0]
 
@@ -1933,9 +1943,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("riskfree", riskfree)
         print("erp", erp)
         print("\n\n")
-
-    final_year = data["revenue"]["dates"][-1]
-    initial_year = final_year - years + 1
 
     mr_shares = data["mr_shares"]["value"] / 1000
     shares = get_selected_years(data, "shares", initial_year, final_year)
@@ -2390,6 +2397,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
 if __name__ == '__main__':
-    cik = cik_from_ticker("AAON")
+    cik = cik_from_ticker("ACT")
     if cik != -1:
         valuation(cik, debug=True, years=6)
