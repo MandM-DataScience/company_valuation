@@ -432,7 +432,7 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
 
     debug=True
 
-    if geo_segments_df.empty:
+    if geo_segments_df is None or geo_segments_df.empty:
         industry_sales_capital = get_industry_parameter(df, industry, region, "sales_capital", debug=debug)
         industry_payout = min(1, get_industry_parameter(df, industry, region, "cash_return", debug=debug))
         pbv = get_industry_parameter(df, industry, region, "pbv", debug=debug)

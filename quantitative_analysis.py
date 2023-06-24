@@ -1897,8 +1897,12 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     damodaran_bond_spread["less_than"] = pd.to_numeric(damodaran_bond_spread["less_than"])
 
     doc = get_last_document(cik, "10-K")
-    segments = extract_segments(doc)
-    geo_segments_df = geography_distribution(segments, ticker)
+
+    if doc is not None:
+        segments = extract_segments(doc)
+        geo_segments_df = geography_distribution(segments, ticker)
+    else:
+        geo_segments_df = None
 
     country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
 
@@ -1906,7 +1910,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     country_default_spread = 0
     country_risk_premium = 0
 
-    if geo_segments_df.empty:
+    if geo_segments_df is None or geo_segments_df.empty:
         filter_df = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
         tax_rate = float(filter_df["tax_rate"])
         country_default_spread = float(filter_df["adjusted_default_spread"])
@@ -2148,7 +2152,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("\n===== Operating Leases =====")
         print("leases", leases)
         print("\n===== Segments =====\n")
-        print(geo_segments_df.to_markdown())
+        if geo_segments_df is not None:
+            print(geo_segments_df.to_markdown())
         print("\n===== Options =====")
         print("mr_sbc", mr_sbc)
         print("\n\n")
@@ -2397,6 +2402,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
 if __name__ == '__main__':
-    cik = cik_from_ticker("ADBE")
+    cik = cik_from_ticker("AEM")
     if cik != -1:
         valuation(cik, debug=True, years=6)

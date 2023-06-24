@@ -266,7 +266,7 @@ def try_geo_segments():
     # geography_distribution(segments, "hes")
 
 
-def get_last_document(cik, form_type):
+def get_last_document(cik, form_type, downloaded=False):
     collection = mongodb.get_collection("documents")
     docs = collection.find({"cik": cik, "form_type": form_type})
 
@@ -279,9 +279,11 @@ def get_last_document(cik, form_type):
             last_doc = doc
 
     if last_doc is None:
+        if downloaded:
+            return None
         download_all_cik_submissions(cik)
         download_submissions_documents(cik)
-        return get_last_document(cik, form_type)
+        return get_last_document(cik, form_type, downloaded=True)
 
     return last_doc
 
