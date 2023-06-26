@@ -142,13 +142,13 @@ def convert_currencies(currency, financial_currency):
             num_retry += 1
 
         multiplier = 1
-        if financial_currency == "USD" and ("GBp" in currency):
+        if "GBp" in currency:
             currency = "GBP"
             multiplier = 100
-        if financial_currency == "USD" and ("ZAc" in currency or "ZAC" in currency):
+        if "ZAc" in currency or "ZAC" in currency:
             currency = "ZAR"
             multiplier = 100
-        if financial_currency == "USD" and ("ILA" in currency):
+        if "ILA" in currency:
             currency = "ILS"
             multiplier = 100
 
@@ -257,7 +257,7 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
 
         try:
             if helper_interest_expense_adj > 0:
-                interest_coverage_ratio = helper_ebit_adj / helper_interest_expense_adj
+                interest_coverage_ratio = min(99999, helper_ebit_adj / helper_interest_expense_adj)
         except:
             interest_coverage_ratio = 12.5
 
@@ -1006,17 +1006,17 @@ def get_status(fcff_delta, div_delta, liquidation_delta, country, region, size, 
         t += 0.2
 
     if size == "Mega":
-        t += 0.05
+        t += 0
     elif size == "Large":
-        t += 0.08
+        t += 0.05
     elif size == "Medium":
-        t += 0.11
+        t += 0.12
     elif size == "Small":
-        t += 0.14
+        t += 0.18
     elif size == "Micro":
-        t += 0.17
+        t += 0.25
     else:
-        t += 0.2
+        t += 0.3
 
     if fcff_delta < -t:
         if div_delta < -t:

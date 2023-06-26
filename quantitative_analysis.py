@@ -46,11 +46,15 @@ def build_financial_df(doc, measure, unit="USD", tax="us-gaap"):
     # for example Revenues, we need to know the period (start-end) in which they have been generated.
     # for balance sheet measures we have only end date as they are snapshot in time.
     # for example Cash, we just know the amount in a certain date, there is no start-date period concept.
-    if "start" in df.columns:
-        df["start"] = pd.to_datetime(df["start"])
 
-    df["end"] = pd.to_datetime(df["end"])
-    df["filed"] = pd.to_datetime(df["filed"])
+    try:
+        if "start" in df.columns:
+            df["start"] = pd.to_datetime(df["start"])
+
+        df["end"] = pd.to_datetime(df["end"])
+        df["filed"] = pd.to_datetime(df["filed"])
+    except:
+        return None
 
     # print(measure, unit, tax)
     # print(df)
@@ -450,7 +454,12 @@ def extract_shares(doc, quarter_of_annual_report, years_diff):
         yearly_shares = yearly_common_shares
 
     # in some filings the company report shares with a wrong unit of measure (million shares instead of thousand shares)
-    max_num_shares = max(yearly_shares["values"])
+
+    try:
+        max_num_shares = max(yearly_shares["values"])
+    except:
+        raise NoSharesException()
+
     yearly_shares["values"] = [x * 1000 if x / max_num_shares < 0.01 else x for x in yearly_shares["values"]]
     if most_recent_shares["value"] / max_num_shares < 0.01:
         most_recent_shares["value"] *= 1000
@@ -458,6 +467,9 @@ def extract_shares(doc, quarter_of_annual_report, years_diff):
         "mr_shares": most_recent_shares,
         "shares": yearly_shares,
     }
+
+class NoSharesException(Exception):
+    pass
 
 def extract_income_statement(doc):
     """
@@ -486,10 +498,11 @@ def extract_income_statement(doc):
     last_annual_report_fy = None
     for m in measures:
         df = build_financial_df(doc, m)
-        annual_rd, annual_fy = get_last_annual_report_date_and_fy(df)
-        if last_annual_report_date is None or (annual_rd is not None and annual_rd > last_annual_report_date):
-            last_annual_report_date = annual_rd
-            last_annual_report_fy = annual_fy
+        if df is not None and not df.empty and "frame" in df.columns:
+            annual_rd, annual_fy = get_last_annual_report_date_and_fy(df)
+            if last_annual_report_date is None or (annual_rd is not None and annual_rd > last_annual_report_date):
+                last_annual_report_date = annual_rd
+                last_annual_report_fy = annual_fy
 
     #### R and D ####
     measures = ["ResearchAndDevelopmentExpense"]
@@ -731,7 +744,7 @@ def extract_balance_sheet_current_assets(doc, quarter_of_annual_report, years_di
     merge_subsets_yearly(yearly_cash_and_restricted, [yearly_cash, yearly_restrictedcash], must_include=(0,))
 
     if most_recent_cash_and_restricted["date"] is None \
-            or most_recent_cash["date"] > most_recent_cash_and_restricted["date"]:
+            or (most_recent_cash["date"] is not None and most_recent_cash["date"] > most_recent_cash_and_restricted["date"]):
         most_recent_cash_and_restricted["date"] = most_recent_cash["date"]
         most_recent_cash_and_restricted["value"] = most_recent_cash["value"]
 
@@ -1837,6 +1850,14 @@ def get_selected_years(data, key, start, end):
 
     return r
 
+def null_valuation(price_per_share=0):
+
+    fcff_value = div_value = liquidation_per_share = -1
+    fcff_delta = div_delta = liquidation_delta = 10
+    status = STATUS_KO
+
+    return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
+
 def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     """
     Compute valuation for company. Valuation is done following principles teached by Prof. Damodaran in his Valuation
@@ -1864,7 +1885,15 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     # Check if we have submissions (at least the last 10k)
 
-    data = extract_company_financial_information(cik)
+    try:
+        data = extract_company_financial_information(cik)
+    except NoSharesException:
+        print(cik, "no shares")
+        return null_valuation()
+    except StopIteration:
+        print(cik, "no financial data")
+        return null_valuation()
+
     if debug:
         print(data)
         print()
@@ -1874,6 +1903,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         initial_year = final_year - years + 1
     except:
         print(cik, "no revenue")
+        return null_valuation()
 
     erp = get_df_from_table("damodaran_erp")
     erp = erp[erp["date"] == erp["date"].max()]["value"].iloc[0]
@@ -1884,9 +1914,13 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     price_per_share = get_current_price_from_yahoo(ticker)
     if price_per_share is None:
         print(ticker, "delisted")
-        return
+        return null_valuation()
 
-    company_name, country, industry, region = get_generic_info(ticker)
+    try:
+        company_name, country, industry, region = get_generic_info(ticker)
+    except IndexError:
+        print(ticker, "not found in db")
+        return null_valuation()
 
     yahoo_equity_ticker = get_df_from_table("yahoo_equity_tickers", f"where symbol = '{ticker}'", most_recent=True).iloc[0]
     db_curr = yahoo_equity_ticker["currency"]
@@ -1911,7 +1945,10 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     country_risk_premium = 0
 
     if geo_segments_df is None or geo_segments_df.empty:
-        filter_df = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
+        try:
+            filter_df = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]
+        except:
+            filter_df = country_stats[country_stats["country"] == "Global"].iloc[0]
         tax_rate = float(filter_df["tax_rate"])
         country_default_spread = float(filter_df["adjusted_default_spread"])
         country_risk_premium = float(filter_df["country_risk_premium"])
@@ -1921,7 +1958,11 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
             percent = row["value"]
             search_key = row["country_area"]
 
-            filter_df = country_stats[country_stats["country"] == search_key.replace(" ", "")].iloc[0]
+            try:
+                filter_df = country_stats[country_stats["country"] == search_key.replace(" ", "")].iloc[0]
+            except:
+                filter_df = country_stats[country_stats["country"] == "Global"].iloc[0]
+
             t = float(filter_df["tax_rate"])
             cds = float(filter_df["adjusted_default_spread"])
             crp = float(filter_df["country_risk_premium"])
@@ -1932,8 +1973,18 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     final_erp = float(erp) + country_risk_premium
 
-    alpha_3_code = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]["alpha_3_code"]
+    # print("country", country)
+    # print("db_fin_cur", db_financial_curr)
+
+    try:
+        alpha_3_code = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]["alpha_3_code"]
+    except:
+        alpha_3_code = None
     riskfree = currency_bond_yield(db_financial_curr, alpha_3_code, country_stats)
+
+    if riskfree == -1:
+        print(ticker, "no riskfree")
+        return null_valuation(price_per_share)
 
     if debug:
         print("===== GENERAL INFORMATION =====\n")
@@ -1953,6 +2004,11 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     # CONVERT CURRENCY
     fx_rate = None
+
+    if db_curr is None or db_curr.strip() == "":
+        return null_valuation(queue, ticker, price_per_share)
+    if db_financial_curr is None or db_financial_curr.strip() == "":
+        return null_valuation(queue, ticker, price_per_share)
 
     # they are different
     if db_curr != db_financial_curr:
@@ -1986,6 +2042,11 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     revenue_growth = []
     revenue_delta = []
     for i in range(len(revenue) - 1):
+
+        if revenue[i] < 0:
+            print("negative revenue")
+            return null_valuation(price_per_share)
+
         revenue_delta.append(revenue[i + 1] - revenue[i])
         try:
             revenue_growth.append(revenue[i + 1] / revenue[i] - 1)

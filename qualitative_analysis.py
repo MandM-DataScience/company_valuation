@@ -236,7 +236,7 @@ def geography_distribution(segments, ticker):
     df = df.drop("country_area", axis=1)
     df = df.rename(columns={"part_area":"country_area"})
     df["value"] = df["value"] * df["area_percent"]
-    df["region"] = df["country_area"].apply(lambda x: country_to_region[x])
+    df["region"] = df["country_area"].apply(lambda x: country_to_region[x] if x in country_to_region else "Global")
 
     # print(df.to_markdown())
 

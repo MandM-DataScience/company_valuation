@@ -12,6 +12,7 @@ from investing_com import get_10y_bond_yield
 import numpy as np
 
 country_to_region = {
+    "Guernsey": "Global",
     "CzechRepublic": "emerg",
     "Cyprus": "Europe",
     "Macau": "China",
@@ -295,7 +296,12 @@ def get_generic_info(ticker):
     company_name = ticker_info["long_name"]
     country = ticker_additional_info["country"]
     industry = ticker_additional_info["industry"]
-    region = country_to_region[country.replace(" ","")]
+
+    try:
+        region = country_to_region[country.replace(" ","")]
+    except:
+        print("country not found in country_to_region dict:", country)
+        region = "Global"
 
     try:
         industry = industry_translation[industry]
@@ -319,6 +325,10 @@ def currency_bond_yield(currency, alpha_3_code, country_stats):
         riskfree = currency_10y_bond - country_default_spread
 
     else:
+
+        if alpha_3_code is None:
+            return -1
+
         us_10y_bond, _ = get_10y_bond_yield("USD")
 
         filter_df = country_stats[country_stats["country"] == "UnitedStates"].iloc[0]
@@ -464,8 +474,11 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
     debt_equity = []
     sales_capital = []
 
-    sales_capital_5y = sum(revenue_delta) / sum(reinvestment)
-    if sales_capital_5y <= 0:
+    try:
+        sales_capital_5y = sum(revenue_delta) / sum(reinvestment)
+        if sales_capital_5y <= 0:
+            sales_capital_5y = industry_sales_capital
+    except:
         sales_capital_5y = industry_sales_capital
 
     for i in range(len(revenue)):
@@ -474,8 +487,10 @@ def get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, reve
         else:
             operating_margin.append(0)
 
-        if (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)) > 0:
-            debt_equity.append((debt_bv_adj[i] * (debt_mkt/mr_debt_adj)) / (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)))
+        num = (debt_bv_adj[i] * (debt_mkt/mr_debt_adj)) if mr_debt_adj > 0 else debt_bv_adj[i]
+        den = (equity_bv_adj[i] * (equity_mkt/mr_equity_adj)) if mr_equity_adj > 0 else equity_bv_adj[i]
+        if den > 0 and num / den > 0:
+            debt_equity.append(num/den)
         else:
             debt_equity.append(0)
 
