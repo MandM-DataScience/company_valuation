@@ -12,6 +12,7 @@ from investing_com import get_10y_bond_yield
 import numpy as np
 
 country_to_region = {
+    "CzechRepublic": "emerg",
     "Cyprus": "Europe",
     "Macau": "China",
     "IsleofMan": "Global",

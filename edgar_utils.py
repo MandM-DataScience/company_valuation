@@ -112,16 +112,13 @@ def download_all_cik_submissions(cik):
     r["_id"] = cik
     mongodb.upsert_document("submissions", r)
 
-def download_submissions_documents(cik):
+def download_submissions_documents(cik, forms_to_download=("10-Q", "10-K", "8-K"), years=5):
     '''
     Download all documents for submissions forms 'forms_to_download' for the past 'max_history' years.
     Insert them on mongodb.
     :param cik: company cik
     :return:
     '''
-
-    forms_to_download = ["10-Q", "10-K", "8-K"]
-    max_history = 5
 
     try:
         submissions = mongodb.get_document("submissions", cik)
@@ -139,7 +136,7 @@ def download_submissions_documents(cik):
                                             datetime.datetime.strptime(filing_date, "%Y-%m-%d")).years
 
         # as the document are ordered cronologically when we reach the max history we can return
-        if difference_in_years > max_history:
+        if difference_in_years > years:
             return
 
         form_type = filings['form'][i]

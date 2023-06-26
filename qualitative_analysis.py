@@ -282,7 +282,7 @@ def get_last_document(cik, form_type, downloaded=False):
         if downloaded:
             return None
         download_all_cik_submissions(cik)
-        download_submissions_documents(cik)
+        download_submissions_documents(cik, forms_to_download=("10-K",), years=2)
         return get_last_document(cik, form_type, downloaded=True)
 
     return last_doc
