@@ -11,6 +11,10 @@ from requests.exceptions import ChunkedEncodingError
 from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 import traceback
 
+packet_stream_proxy = "http://easymap_buyer:34Qgo0O03zOhrx8h@proxy.packetstream.io:31112"
+bright_data_proxy = 'http://brd-customer-hl_f8b1a708-zone-finance:u7iz73qdf9wv@brd.superproxy.io:22225'
+proxy = bright_data_proxy
+
 def request_yahoo_url(url):
     hed = {'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
            'Accept-Encoding': 'gzip, deflate, br', 'Accept-Language': 'it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -28,15 +32,9 @@ def request_yahoo_url(url):
         "A1S": "d=AQABBJDkvF8CEEnmdkmy3hsZxUP4oHXu3MoFEgAABgGxBmLqYudVb2UB9iMAAAcIf7Z8XzRwxloID4-gDUXX3Q7JnS7c59zqFwkBBwoBMA&S=AQAAAujaKZu-E9Ike-e7u6WnYmk&j=WORLD",
         "B": "5lhjg6hfnpdjv&b=4&d=Jw.N6YdtYFmKelHVCZg9&s=cc&i=j6ANRdfdDsmdLtzn3OoX",
     }
-    # proxies = {
-    #     'http': 'http://easymap:db5d18-df64f0-cb6d1a-3c3c2f-4f22c2@premium.residential.proxyrack.net:9000',
-    #     'https': 'http://easymap:db5d18-df64f0-cb6d1a-3c3c2f-4f22c2@premium.residential.proxyrack.net:9000'
-    # }
-    http_proxy = "http://easymap_buyer:34Qgo0O03zOhrx8h@proxy.packetstream.io:31112"
-    https_proxy = "http://easymap_buyer:34Qgo0O03zOhrx8h@proxy.packetstream.io:31112"
     proxies = {
-        "http": http_proxy,
-        "https": https_proxy,
+        "http": proxy,
+        "https": proxy,
     }
     response = None
     num_retry = 0

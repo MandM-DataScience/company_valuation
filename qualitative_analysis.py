@@ -145,7 +145,7 @@ def geography_distribution(segments, ticker):
     df = pd.DataFrame(segments)
 
     if df.empty:
-        return
+        return df
 
     df["segment"] = df["segment"].astype(str)
 
@@ -216,13 +216,31 @@ def geography_distribution(segments, ticker):
     df = df[~(df["country"].isna())|~(df["area"].isna())]
 
     df["value"] /= df["value"].sum()
-
     df["country_area"] = df["country"].fillna(df["area"])
-    df["region"] = df["country_area"].apply(lambda x: country_to_region[x])
+
+    aggregate_areas_df = pd.DataFrame([
+        {"country_area": "EMEA", "part_area": "Western Europe", "area_percent": 0.7},
+        {"country_area": "EMEA", "part_area": "Middle East", "area_percent": 0.15},
+        {"country_area": "EMEA", "part_area": "Africa", "area_percent": 0.15},
+        {"country_area": "APAC", "part_area": "Asia", "area_percent": 0.9},
+        {"country_area": "APAC", "part_area": "Australia & New Zealand", "area_percent": 0.1},
+        {"country_area": "LACC", "part_area": "Central and South America", "area_percent": 0.5},
+        {"country_area": "LACC", "part_area": "Canada", "area_percent": 0.4},
+        {"country_area": "LACC", "part_area": "Caribbean", "area_percent": 0.1},
+    ])
+
+    # print(df.to_markdown())
+    df = pd.merge(df, aggregate_areas_df, how="left", left_on="country_area", right_on="country_area")
+    df["part_area"] = df["part_area"].fillna(df["country_area"])
+    df["area_percent"] = df["area_percent"].fillna(1)
+    df = df.drop("country_area", axis=1)
+    df = df.rename(columns={"part_area":"country_area"})
+    df["value"] = df["value"] * df["area_percent"]
+    df["region"] = df["country_area"].apply(lambda x: country_to_region[x] if x in country_to_region else "Global")
 
     # print(df.to_markdown())
 
-    return df.drop(["segment","country","area"], axis=1)
+    return df.drop(["segment","country","area", "area_percent"], axis=1)
 
 
 def try_geo_segments():
@@ -248,7 +266,7 @@ def try_geo_segments():
     # geography_distribution(segments, "hes")
 
 
-def get_last_document(cik, form_type):
+def get_last_document(cik, form_type, downloaded=False):
     collection = mongodb.get_collection("documents")
     docs = collection.find({"cik": cik, "form_type": form_type})
 
@@ -261,9 +279,11 @@ def get_last_document(cik, form_type):
             last_doc = doc
 
     if last_doc is None:
+        if downloaded:
+            return None
         download_all_cik_submissions(cik)
-        download_submissions_documents(cik)
-        return get_last_document(cik, form_type)
+        download_submissions_documents(cik, forms_to_download=("10-K",), years=2)
+        return get_last_document(cik, form_type, downloaded=True)
 
     return last_doc
 

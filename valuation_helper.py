@@ -6,6 +6,7 @@ from forex_python.converter import CurrencyRates, RatesNotAvailableError
 from urllib3.exceptions import ProtocolError
 import numpy as np
 from yahoo_finance import get_current_price_from_yahoo
+import math
 
 r_and_d_amortization = {
     'Advertising': 2,
@@ -141,13 +142,13 @@ def convert_currencies(currency, financial_currency):
             num_retry += 1
 
         multiplier = 1
-        if financial_currency == "USD" and ("GBp" in currency):
+        if "GBp" in currency:
             currency = "GBP"
             multiplier = 100
-        if financial_currency == "USD" and ("ZAc" in currency or "ZAC" in currency):
+        if "ZAc" in currency or "ZAC" in currency:
             currency = "ZAR"
             multiplier = 100
-        if financial_currency == "USD" and ("ILA" in currency):
+        if "ILA" in currency:
             currency = "ILS"
             multiplier = 100
 
@@ -170,12 +171,18 @@ def convert_currencies(currency, financial_currency):
 
 def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
 
+    # print("DEBUG R&D")
+    # print(r_and_d)
+    # print(r_and_d_amortization_years)
+    # print(tax_rate)
+    # print(years)
+
     # last element does not amortize this year
     r_and_d_amortization_cy = [sum(i * 1 / r_and_d_amortization_years for i in r_and_d[:-1])]
 
     # first element is fully amortized after this year
     r_and_d_unamortized = [sum(i[0] * i[1] for i in
-                               zip(r_and_d[1:],
+                               zip(r_and_d[-r_and_d_amortization_years:],
                                    np.linspace(1 / r_and_d_amortization_years, 1, r_and_d_amortization_years)))]
 
     ebit_r_and_d_adj = [r_and_d[-1] - r_and_d_amortization_cy[0]]
@@ -183,6 +190,8 @@ def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
 
     while len(r_and_d) < years:
         r_and_d.insert(0, 0)
+
+    # print("r_and_d after inserting 0", r_and_d)
 
     r_and_d_growth = []
     for i in range(len(r_and_d) - 1):
@@ -194,12 +203,21 @@ def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
     # first element is the growth between most recent year and the year before that
     r_and_d_growth.reverse()
 
+    # print(r_and_d)
+    # print(r_and_d_growth)
+
     for i in range(years - 1):
         g = r_and_d_growth[i]
-        tax_benefit.append(tax_benefit[-1] / (1 + g))
-        ebit_r_and_d_adj.append(ebit_r_and_d_adj[-1] / (1 + g))
-        r_and_d_unamortized.append(r_and_d_unamortized[-1] / (1 + g))
-        r_and_d_amortization_cy.append(r_and_d_amortization_cy[-1] / (1 + g))
+        if g == -1:
+            tax_benefit.append(0)
+            ebit_r_and_d_adj.append(0)
+            r_and_d_unamortized.append(0)
+            r_and_d_amortization_cy.append(0)
+        else:
+            tax_benefit.append(tax_benefit[-1] / (1 + g))
+            ebit_r_and_d_adj.append(ebit_r_and_d_adj[-1] / (1 + g))
+            r_and_d_unamortized.append(r_and_d_unamortized[-1] / (1 + g))
+            r_and_d_amortization_cy.append(r_and_d_amortization_cy[-1] / (1 + g))
 
     # reverse order
     for l in [ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy]:
@@ -212,6 +230,7 @@ def capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years):
     # print("r_and_d_unamortized", r_and_d_unamortized)
     # print("ebit_r_and_d_adj", ebit_r_and_d_adj)
     # print("tax_benefit", tax_benefit)
+
     return ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy
 
 def get_spread_from_dscr(interest_coverage_ratio, damodaran_bond_spread):
@@ -227,6 +246,7 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
     debt_adj = [0]
     interest_coverage_ratio = 12.5
     company_default_spread = -1
+    visited_icr = []
     done = False
 
     # CYCLE
@@ -237,9 +257,9 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
 
         try:
             if helper_interest_expense_adj > 0:
-                interest_coverage_ratio = helper_ebit_adj / helper_interest_expense_adj
+                interest_coverage_ratio = min(99999, helper_ebit_adj / helper_interest_expense_adj)
         except:
-            pass
+            interest_coverage_ratio = 12.5
 
         spread = get_spread_from_dscr(interest_coverage_ratio, damodaran_bond_spread)
 
@@ -247,6 +267,11 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
             done = True
 
         else:
+
+            if interest_coverage_ratio in visited_icr:
+                done = True
+            visited_icr.append(interest_coverage_ratio)
+
             company_default_spread = spread
             cost_of_debt = riskfree + country_default_spread + company_default_spread
             pv_leases = []
@@ -264,6 +289,8 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
 
             # update helper_interest
             int_exp_op_adj = leases[0] * (1 - 1 / (1 + cost_of_debt))
+
+        # print(interest_coverage_ratio, spread, company_default_spread, cost_of_debt)
 
     ebit_op_adj = [ttm_ebit_op_adj]
     tax_benefit_op = [ebit_op_adj[0] * tax_rate]
@@ -284,7 +311,6 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
     for l in [tax_benefit_op, ebit_op_adj, debt_adj]:
         l.reverse()
 
-    # print()
     # print("leases", leases)
     # print("cost of debt", cost_of_debt)
     # print("pv_leases", pv_leases)
@@ -302,11 +328,11 @@ def get_growth_ttm(ttm_ebit_after_tax, ttm_net_income_adj, mr_equity_adj, mr_deb
                  reinvestment, ttm_dividends, industry_payout):
 
     try:
-        print("ROC LAST")
-        print(ttm_ebit_after_tax)
-        print(mr_debt_adj)
-        print(mr_equity_adj)
-        print(mr_cash_and_securities)
+        # print("ROC LAST")
+        # print(ttm_ebit_after_tax)
+        # print(mr_debt_adj)
+        # print(mr_equity_adj)
+        # print(mr_cash_and_securities)
         roc_last = ttm_ebit_after_tax / (mr_debt_adj + mr_equity_adj - mr_cash_and_securities)
     except:
         roc_last = 0
@@ -364,7 +390,7 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
                     unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity):
 
     cagr = None
-    if ttm_revenue != revenue[-1]:
+    if abs(ttm_revenue/revenue[-1] - 1) > 0.0001:
         ttm = True
     else:
         ttm = False
@@ -395,21 +421,14 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
             if i > 0:
                 years_diff += 1
 
-        print("rev_list", rev_list)
-        print("first_revenue", first_revenue)
-
         # Simple CAGR
         simple_cagr = (rev_list[-1] / first_revenue) ** (1/(years_diff)) - 1
         capped_simple_cagr = max(min(simple_cagr,0.3),-0.2)
-
-        print("simple_cagr", simple_cagr)
-        print("capped_simple_cagr", capped_simple_cagr)
 
         # CAGR from start
         cagr_from_start_list = []
         for i in range(1, years_diff+1):
             cagr_from_start_list.append((rev_list[first_index+i] / first_revenue) ** (1/i) - 1)
-
 
         abs_cagr_from_start = [abs(x) for x in cagr_from_start_list]
         cagr_from_start_sorted = [x for _, x in sorted(zip(abs_cagr_from_start, cagr_from_start_list), reverse=True)]
@@ -423,16 +442,10 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
         cagr_from_start = value_sum / weight_sum
         capped_cagr_from_start = max(min(cagr_from_start,0.3),-0.2)
 
-        print("cagr_from_start_list", cagr_from_start_list)
-        print("cagr_from_start", cagr_from_start)
-        print("capped_cagr_from_start", capped_cagr_from_start)
-
         # CAGR from end
         cagr_from_end_list = []
         for i in range(years_diff):
             cagr_from_end_list.append((rev_list[-1] / rev_list[first_index+i]) ** (1 / (years_diff-i)) - 1)
-
-        print("cagr_from_end_list", cagr_from_end_list)
 
         abs_cagr_from_end = [abs(x) for x in cagr_from_end_list]
         cagr_from_end_sorted = [x for _, x in sorted(zip(abs_cagr_from_end, cagr_from_end_list), reverse=True)]
@@ -446,8 +459,16 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
         cagr_from_end = value_sum / weight_sum
         capped_cagr_from_end = max(min(cagr_from_end, 0.3), -0.2)
 
-        print("cagr_from_end", cagr_from_end)
-        print("capped_cagr_from_end", capped_cagr_from_end)
+        # print("rev_list", rev_list)
+        # print("first_revenue", first_revenue)
+        # print("simple_cagr", simple_cagr)
+        # print("capped_simple_cagr", capped_simple_cagr)
+        # print("cagr_from_start_list", cagr_from_start_list)
+        # print("cagr_from_start", cagr_from_start)
+        # print("capped_cagr_from_start", capped_cagr_from_start)
+        # print("cagr_from_end_list", cagr_from_end_list)
+        # print("cagr_from_end", cagr_from_end)
+        # print("capped_cagr_from_end", capped_cagr_from_end)
 
         cagr_3_values = [capped_simple_cagr, capped_cagr_from_start, capped_cagr_from_end]
         cagr_3_values.sort(reverse=True)
@@ -464,8 +485,9 @@ def get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, fina
     spread_list = [float(x) for x in spread_list]
     spread_list.sort()
 
+    debt_improvement_offset = 2
     idx = spread_list.index(company_default_spread)
-    idx -= 4
+    idx -= debt_improvement_offset
     if idx < 0:
         idx = 0
     target_company_default_spread = float(spread_list[idx])
@@ -569,8 +591,8 @@ def get_final_info(riskfree, cost_of_debt, equity_mkt, debt_mkt, unlevered_beta,
     return survival_prob, debt_equity, \
            levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital
 
-def calculate_liquidation_value(cash, receivables, inventory, securities, other_current_assets, ppe,
-                                equity_investments, total_liabilities, equity_mkt, debt_mkt, mr_debt,
+def calculate_liquidation_value(cash, receivables, inventory, securities, other_current_assets, mr_property, ppe,
+                                equity_investments, total_liabilities, equity_mkt, mr_debt, mr_equity, mr_original_min_interest,
                                 minority_interest, debug=True):
 
     percent_minority_interest = minority_interest / equity_mkt
@@ -578,11 +600,11 @@ def calculate_liquidation_value(cash, receivables, inventory, securities, other_
     # if market_liquidation < 0:
     #     market_liquidation = 0
 
-    damodaran_liquidation = cash + (other_current_assets + inventory + receivables + ppe) * 0.75 + \
+    damodaran_liquidation = cash + securities + mr_property + (other_current_assets + inventory + receivables + ppe) * 0.75 + \
                             equity_investments * 0.5 - total_liabilities
     if damodaran_liquidation < 0:
         damodaran_liquidation = 0
-    net_net_wc_liquidation = cash + receivables + inventory + securities + other_current_assets - total_liabilities
+    net_net_wc_liquidation = cash + receivables + inventory + securities + mr_property + other_current_assets - total_liabilities
     if net_net_wc_liquidation < 0:
         net_net_wc_liquidation = 0
 
@@ -603,13 +625,17 @@ def calculate_liquidation_value(cash, receivables, inventory, securities, other_
         print("receivables", receivables)
         print("inventory", inventory)
         print("other_current_assets_ms", other_current_assets)
+        print("property", mr_property)
         print("ppe", ppe)
         print("equity_investments", equity_investments)
+        print()
         print("total_liabilities", total_liabilities)
-        print("percent_minority_interest", percent_minority_interest)
-        print("equity_mkt", equity_mkt)
-        print("debt_mkt", debt_mkt)
+        # print("percent_minority_interest", percent_minority_interest)
+        # print("equity_mkt", equity_mkt)
+        # print("debt_mkt", debt_mkt)
         print("debt_bv", mr_debt)
+        print("equity_bv", mr_equity)
+        print("minority_interest", mr_original_min_interest, "=>", minority_interest)
         # print("market_liquidation", market_liquidation)
         print("damodaran_liquidation", damodaran_liquidation)
         print("net_net_wc_liquidation", net_net_wc_liquidation)
@@ -746,7 +772,7 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
     return stock_value
 
 def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_ebit_adj, target_operating_margin, tax_benefits,
-                   tax_rate, sales_capital_5y, target_sales_capital, debt_weight, target_debt_equity, unlevered_beta,
+                   tax_rate, sales_capital_5y, target_sales_capital, debt_equity, target_debt_equity, unlevered_beta,
                    final_erp, cost_of_debt, target_cost_of_debt, mr_cash, mr_securities, debt_mkt, minority_interest, survival_prob,
                    share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=True, recession=False):
 
@@ -844,22 +870,25 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_
 
         fcff_history.append(ebit_after_tax_history[i] - reinvestment_history[i])
 
-    initial_debt_ratio = debt_weight
-    final_debt_ratio = target_debt_equity / (1+target_debt_equity)
-    debt_ratio_history = np.linspace(initial_debt_ratio, final_debt_ratio, 12)[1:]
+    # initial_debt_ratio = debt_weight
+    # final_debt_ratio = target_debt_equity / (1+target_debt_equity)
+    # debt_ratio_history = np.linspace(initial_debt_ratio, final_debt_ratio, 12)[1:]
+
+    debt_equity_history = np.linspace(debt_equity, target_debt_equity, 12)[1:]
 
     initial_cost_of_debt = cost_of_debt
     final_cost_of_debt = target_cost_of_debt
     cost_of_debt_history = np.linspace(initial_cost_of_debt, final_cost_of_debt, 12)[1:]
 
-    debt_equity_history = []
+    debt_ratio_history = []
     beta_history = []
     cost_of_equity_history = []
     cost_of_capital_history = []
     cumulative_wacc_history = []
     present_value_history = []
-    for i in range(len(debt_ratio_history)):
-        debt_equity_history.append(debt_ratio_history[i] / (1-debt_ratio_history[i]))
+    for i in range(len(debt_equity_history)):
+        debt_ratio_history.append(debt_equity_history[i] / (debt_equity_history[i] + 1))
+        # debt_equity_history.append(debt_ratio_history[i] / (1-debt_ratio_history[i]))
         beta_history.append(unlevered_beta * (1+(1-tax_rate)*debt_equity_history[i]))
         cost_of_equity_history.append(riskfree + final_erp * beta_history[i])
         cost_of_capital_history.append(cost_of_equity_history[i] * (1-debt_ratio_history[i])
@@ -932,6 +961,7 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_
 def summary_valuation(valuations):
 
     sorted = valuations.copy()
+    sorted = [0 if math.isnan(x) else x for x in sorted]
     sorted.sort()
 
     count_negative = 0
@@ -946,7 +976,7 @@ def summary_valuation(valuations):
     else:
         second_highest = sorted[2]
         third_highest = sorted[1]
-        if second_highest / third_highest > 10:
+        if third_highest == 0 or second_highest / third_highest > 10:
             result = 0
         else:
             max_val = max(sorted)
@@ -976,17 +1006,17 @@ def get_status(fcff_delta, div_delta, liquidation_delta, country, region, size, 
         t += 0.2
 
     if size == "Mega":
-        t += 0.05
+        t += 0
     elif size == "Large":
-        t += 0.08
+        t += 0.05
     elif size == "Medium":
-        t += 0.11
+        t += 0.12
     elif size == "Small":
-        t += 0.14
+        t += 0.18
     elif size == "Micro":
-        t += 0.17
+        t += 0.25
     else:
-        t += 0.2
+        t += 0.3
 
     if fcff_delta < -t:
         if div_delta < -t:

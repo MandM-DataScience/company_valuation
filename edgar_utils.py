@@ -13,6 +13,7 @@ CIK_TICKER_URL = "https://www.sec.gov/files/company_tickers_exchange.json"
 AAPL_CIK = "0000320193"
 BABA_CIK = "0001577552"
 ATKR_CIK = "0001666138"
+META_CIK = "0001326801"
 _8K_URL = "https://www.sec.gov/Archives/edgar/data/320193/000114036123023909/ny20007635x4_8k.htm"
 
 def make_edgar_request(url):
@@ -91,7 +92,12 @@ def cik_from_ticker(ticker):
     :return: cik (company id on edgar)
     '''
     df = get_df_cik_ticker_map()
-    return df[df["ticker"] == ticker]["cik"].iloc[0]
+
+    try:
+        cik = df[df["ticker"] == ticker]["cik"].iloc[0]
+    except:
+        cik = -1
+    return cik
 
 def download_all_cik_submissions(cik):
     '''
@@ -106,16 +112,13 @@ def download_all_cik_submissions(cik):
     r["_id"] = cik
     mongodb.upsert_document("submissions", r)
 
-def download_submissions_documents(cik):
+def download_submissions_documents(cik, forms_to_download=("10-Q", "10-K", "8-K"), years=5):
     '''
     Download all documents for submissions forms 'forms_to_download' for the past 'max_history' years.
     Insert them on mongodb.
     :param cik: company cik
     :return:
     '''
-
-    forms_to_download = ["10-Q", "10-K", "8-K"]
-    max_history = 5
 
     try:
         submissions = mongodb.get_document("submissions", cik)
@@ -133,7 +136,7 @@ def download_submissions_documents(cik):
                                             datetime.datetime.strptime(filing_date, "%Y-%m-%d")).years
 
         # as the document are ordered cronologically when we reach the max history we can return
-        if difference_in_years > max_history:
+        if difference_in_years > years:
             return
 
         form_type = filings['form'][i]

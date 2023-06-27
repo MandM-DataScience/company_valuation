@@ -97,7 +97,7 @@ def get_10y_bond_yield(currency):
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     if currency not in currency_country:
-        return
+        return None, None
 
     url = country_url[currency_country[currency]]
     headers = {
