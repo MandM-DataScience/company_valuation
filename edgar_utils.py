@@ -155,7 +155,7 @@ def download_submissions_documents(cik):
         # insert a quick sleep to avoid reaching edgar rate limit
         time.sleep(0.2)
 
-def download_document(url, cik, form_type, filing_date):
+def download_document(url, cik, form_type, filing_date, updated_at):
     '''
     Download and insert submission document
     :param url:
@@ -166,7 +166,7 @@ def download_document(url, cik, form_type, filing_date):
     '''
     response = make_edgar_request(url)
     r = response.text
-    doc = {"html": r, "cik": cik, "form_type": form_type, "filing_date": filing_date, "_id":url}
+    doc = {"html": r, "cik": cik, "form_type": form_type, "filing_date": filing_date, "updated_at":updated_at, "_id":url}
 
     try:
         mongodb.insert_document("documents", doc)
@@ -277,6 +277,18 @@ def add_trailing_to_cik(cik_no_trailing):
     return "{:010d}".format(cik_no_trailing)
 
 
+def get_size_in_bytes(size_string):
+    size = int(size_string.split()[0])
+    unit = size_string.split()[1].upper()
+
+    if unit == "MB":
+        return size * 1024 * 1024
+    elif unit == "KB":
+        return size * 1024
+    else:
+        raise ValueError("Invalid size unit. Must be either MB or KB.")
+
+
 def get_latest_filings(form_type, start_date):
 
     """
@@ -313,6 +325,10 @@ def get_latest_filings(form_type, start_date):
         for entry in entries:
             index_url = entry.find("link")["href"]
             entry_form_type = entry.find("category")["term"]
+            entry_updated_at = entry.find("updated").text.split("T")[0]
+            entry_summary = entry.find("summary").text.replace("<b>",";").replace("</b>","").replace("\n", "")
+            filed_date = entry_summary.split(';')[1].split(":")[1].strip()
+            size = get_size_in_bytes(entry_summary.split(';')[3].split(":")[1].strip())
             start_cik = index_url.find('data/') + 5
             end_cik = index_url.find('/', start_cik)
             cik = add_trailing_to_cik(int(index_url[start_cik: end_cik]))
@@ -321,6 +337,9 @@ def get_latest_filings(form_type, start_date):
                 print(f"{cik} not present in cik map - skip")
                 continue
 
+            if size > 16 * 1024 * 1024:
+                print(f"SKIP {cik} because of size {size}")
+                continue
             url = get_filing_from_index(index_url)
             url = f"https://www.sec.gov/{url.replace('/ix?doc=/','')}"
 
@@ -328,16 +347,16 @@ def get_latest_filings(form_type, start_date):
             if mongodb.check_document_exists("documents", url):
                 continue
 
-            download_document(url, cik, entry_form_type, start_date)
+            download_document(url, cik, entry_form_type, filed_date, entry_updated_at)
 
-            if entry_form_type in ["10-Q", "10-Q/A" "10-K", "10-K/A"]:
-                download_financial_data(cik)
+            # if entry_form_type in ["10-Q", "10-Q/A" "10-K", "10-K/A"]:
+            #     download_financial_data(cik)
 
         start_idx += entries_per_request
 
 
 if __name__ == '__main__':
-    get_latest_filings("10-K", "2023-05-25")
+    get_latest_filings("10-K", "2023-01-01")
     # download_cik_ticker_map()
     # download_all_cik_submissions("0001326801")
     # download_submissions_documents("0001326801")
