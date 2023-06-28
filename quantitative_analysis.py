@@ -2065,6 +2065,8 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
               f"Check r_and_d_amortization dictionary.\n#######\n")
         r_and_d_amortization_years = 5
     r_and_d = get_selected_years(data, "rd", final_year - r_and_d_amortization_years, final_year)
+    while len(r_and_d) < years:
+        r_and_d.insert(0, 0)
 
     ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy = \
         capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years)
@@ -2147,6 +2149,10 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
 
     ttm_eps = ttm_net_income / mr_shares
     ttm_eps_adj = ttm_net_income_adj / mr_shares
+
+    print(working_capital, "=>", delta_wc)
+    print(capex, "=>", capex_adj)
+    print(depreciation_adj)
 
     reinvestment = []
     for i in range(len(capex)):
@@ -2440,7 +2446,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         company_size = "Mega"
 
     complexity = company_complexity(doc, industry, company_size)
-    diluition = company_share_diluition(shares)
+    dilution = company_share_diluition(shares)
 
     inventory = get_selected_years(data, "inventory", initial_year-1, final_year)
     receivables = get_selected_years(data, "receivables", initial_year-1, final_year)
@@ -2451,15 +2457,15 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("MKT CAP USD: ", market_cap_USD)
         print("company_size", company_size)
         print("company complexity", complexity)
-        print("share diluition", round(diluition, 4))
+        print("share dilution", round(dilution, 4))
         print("revenue", revenue)
         print("inventory", inventory)
         print("receivables", receivables)
         print("company_type", company_type)
         print()
 
-    status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, complexity,
-                        diluition, revenue, receivables, inventory, company_type, debug)
+    status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, company_type, dilution, complexity,
+                        revenue, receivables, inventory, debug)
 
     if debug:
         print("FCFF values")

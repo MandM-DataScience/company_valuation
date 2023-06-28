@@ -342,7 +342,7 @@ def company_complexity(doc, industry, company_size):
 
     # no 10-K
     if doc is None:
-        length_modifier = 3
+        length_modifier = 1
 
     else:
         soup = BeautifulSoup(doc["html"], 'html.parser')
@@ -418,7 +418,14 @@ def get_company_type(revenue_growth, mr_debt_adj, equity_mkt, liquidation_value,
         "cyclical": cyclical
     }
 
-def convert_currencies(currency, financial_currency):
+def convert_currencies(db_curr, db_financial_curr, currency=None, financial_currency=None):
+
+    if (currency is not None and financial_currency is not None):
+        financial_currency = financial_currency.replace("Currency in ", "")
+
+    else:
+        currency = db_curr
+        financial_currency = db_financial_curr
 
     if (financial_currency == "GBP" and ("GBp" in currency or "0.01" in currency)) \
             or (financial_currency == "ZAR" and ("ZAC" in currency or "ZAc" in currency or "0.01" in currency)) \
@@ -1542,8 +1549,8 @@ def summary_valuation(valuations):
 
     return result
 
-def get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, complexity,
-                        diluition, revenue, receivables, inventory, company_type, debug):
+def get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, company_type, dilution, complexity,
+               revenue, receivables=None, inventory=None, debug=False):
 
     STATUS_OK = "OK"
     STATUS_NI = "NI"
@@ -1588,7 +1595,7 @@ def get_status(fcff_delta, div_delta, liquidation_delta, country, region, compan
     if debug:
         print("company size threshold", t, "(company size:", company_size, ")")
 
-    if complexity == 2:
+    elif complexity == 2:
         t += 0.03
     elif complexity == 3:
         t += 0.06
@@ -1596,19 +1603,17 @@ def get_status(fcff_delta, div_delta, liquidation_delta, country, region, compan
         t += 0.1
     elif complexity == 5:
         t += 0.2
-    else:
-        pass
 
     if debug:
         print("company complexity threshold", t, "(complexity:", complexity, ")")
 
-    if diluition > 0.1:
+    if dilution > 0.1:
         t += 0.05
-    elif diluition > 0.02:
+    elif dilution > 0.02:
         t += 0.02
 
     if debug:
-        print("dilution threshold", t, "(dilution:", diluition, ")")
+        print("dilution threshold", t, "(dilution:", dilution, ")")
 
     first_idx = 0
     for i, r in enumerate(revenue):
