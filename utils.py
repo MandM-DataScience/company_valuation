@@ -989,11 +989,11 @@ def parse_v4():
     docs = mongodb.get_collection("documents").find(mdb_query)
     count = mongodb.get_collection("documents").count_documents(mdb_query)
     enable_print = False
-    skip = True
+    skip = False
     only_test = False
     ask_next = True
     to_test = [
-        "https://www.sec.gov/Archives/edgar/data/1177702/000095017023004094/saia-20221231.htm",
+        "https://www.sec.gov/Archives/edgar/data/61398/000006139823000011/tell-20221231.htm",
     ]
     _10k_no_sections = []
     _10k_no_text = []
@@ -1064,16 +1064,16 @@ def parse_v4():
 
         if len(sections) == 0:
             sections = get_sections_using_strings(soup, table_of_contents)
-        else:
-            print(f"{bcolors.OKCYAN}"
-                  f'TABLE OF CONTENTS AND HREFS'
-                  f"{bcolors.ENDC}")
-
-        if len(sections) == 0:
-            print(f"{bcolors.FAIL}"
-                  f'{url} - {form_type} with NO SECTIONS'
-                  f"{bcolors.ENDC}")
-            _10k_no_sections.append(url)
+        # else:
+        #     print(f"{bcolors.OKCYAN}"
+        #           f'TABLE OF CONTENTS AND HREFS'
+        #           f"{bcolors.ENDC}")
+        #
+        # if len(sections) == 0:
+        #     print(f"{bcolors.FAIL}"
+        #           f'{url} - {form_type} with NO SECTIONS'
+        #           f"{bcolors.ENDC}")
+        #     _10k_no_sections.append(url)
 
         for s in sections:
             if 'text' not in sections[s]:
@@ -1100,27 +1100,68 @@ def parse_v4():
         #             print(f"{bcolors.WARNING}"
         #                   f' {sections[s]["idx"]} | {s} |{sections[s]["title"]} | {sections[s]["start_el"]} | {end_el} | has no TEXT'
         #                   f"{bcolors.ENDC}")
-        find_auditor(soup, sections)
+
+        business_section = find_business_section(sections)
+        if business_section is not None:
+            if 'text' in business_section:
+                business_text = business_section['text']
+                business_text = re.sub('\n', ' ', business_text)
+                business_text = re.sub(' +', ' ', business_text)
+                result = {
+                    '_id': url,
+                    'business': business_text,
+                }
+                mongodb.upsert_document("parsed_documents", result)
+
+        # find_auditor(soup, sections)
         if ask_next:
             input("NEXT")
 
-    print("10K NO TABLE OF CONTENTS")
-    for ns in _10k_no_toc:
-        print(ns)
-
-    print("10K NO SECTIONS")
-    for ns in _10k_no_sections:
-        print(ns)
-
-    print("10K NO TEXT")
-    for ns in _10k_no_text:
-        print(ns)
-
-    print("WITH EXCEPTION")
-    for ns in with_exception:
-        print(ns)
+    # print("10K NO TABLE OF CONTENTS")
+    # for ns in _10k_no_toc:
+    #     print(ns)
+    #
+    # print("10K NO SECTIONS")
+    # for ns in _10k_no_sections:
+    #     print(ns)
+    #
+    # print("10K NO TEXT")
+    # for ns in _10k_no_text:
+    #     print(ns)
+    #
+    # print("WITH EXCEPTION")
+    # for ns in with_exception:
+    #     print(ns)
 
     print("END")
+
+
+def find_business_section(sections):
+    has_business = None
+    for s in sections:
+        sec = sections[s]
+
+        if 'title' in sec and sec['title'] is not None and 'business' in sec['title'].lower():
+            has_business = sec
+
+        if has_business is None and 'title_candidates' in sec:
+            for tc in sec['title_candidates']:
+                if 'business' in tc.lower():
+                    has_business = sec
+                    break
+        if has_business is None and 'item' in sec and 'item 1' == sec['item']:
+            has_business = sec
+    if has_business is None:
+        print(f"{bcolors.FAIL}"
+              f'NO BUSINESS'
+              f"{bcolors.ENDC}")
+
+        for s in sections:
+            sec = sections[s]
+            del sec['text']
+            print(sec)
+
+    return has_business
 
 
 def find_auditor(soup, sections):
@@ -1133,7 +1174,6 @@ def find_auditor(soup, sections):
     for s in sections:
         sec = sections[s]
         if auditor_start_string in sec['text'].lower():
-            print(f"FOUND AUDITOR  in {sec['title']}")
             start_sig = 0
             while start_sig != -1:
                 start_sig = sec['text'].lower().find(auditor_start_string, start_sig)
@@ -1147,7 +1187,6 @@ def find_auditor(soup, sections):
     auditor_start_string = 'auditor'
     if auditor_string == "":
         if auditor_start_string in body.lower():
-            print("AUDITOR IN TEXT")
             start_sig = 0
             while start_sig != -1:
                 start_sig = body.lower().find(auditor_start_string, start_sig + len(auditor_start_string))
@@ -1185,6 +1224,32 @@ def test():
     }
 
 
+def evaluate_sections_summary(url):
+    from openai_interface import evaluate_section_length, summarize_section
+
+    doc = mongodb.get_document("documents", url)
+    parsed_doc = mongodb.get_document("parsed_documents", url)
+    company = company_from_cik(doc["cik"])
+
+    result = {"_id": doc["_id"],
+              "name": company["name"],
+              "ticker": company["ticker"],
+              "form_type": doc["form_type"],
+              "filing_date": doc["filing_date"]}
+
+    for section_title, section_text in parsed_doc.items():
+
+        # if no section to summarize, skip
+        if section_title == "_id" or len(section_text) == 0:
+            continue
+
+        section_text = "Avery Dennison Corporation is a global materials science and digital identification solutions company that provides branding and information labeling solutions. They serve an array of industries worldwide and have nearly 200 manufacturing and distribution facilities in over 50 countries. They have two reportable segments, Materials Group and Solutions Group, and have made acquisitions and venture investments to support organic growth. They have a global workforce of over 36,000 people and have established DEI initiatives, compensation and benefit programs, and hybrid and remote work opportunities. They prioritize safety and have a global Recordable Incident Rate of 0.23 in 2022, significantly lower than the Occupational Safety and Health Administration manufacturing industry average of 3.3 in 2021. They conduct a global employee engagement survey annually and strive to foster a collaborative, supportive culture to promote retention and minimize employee turnover. To ensure worker safety, they invest in solvent capture and control units and use adhesives and adhesive processing systems that minimize the use of solvents. They also provide security and digital tools to support efficiency and effectiveness for their employees."
+        # get summary from openAI model
+        summary = summarize_section(company, doc["form_type"], doc["filing_date"], section_title, section_text)
+        result[section_title] = summary
+    mongodb.upsert_document("items_summary", result)
+
+
 if __name__ == '__main__':
     # test_parse_document()
     # parse_v2()
@@ -1192,4 +1257,6 @@ if __name__ == '__main__':
     # parse_segments()
     # find_possible_axis()
     # parse_v3()
-    parse_v4()
+    # parse_v4()
+    url = 'https://www.sec.gov/Archives/edgar/data/8818/000000881823000002/avy-20221231.htm'
+    evaluate_sections_summary(url)
