@@ -122,10 +122,12 @@ def get_10y_bond_yield(currency):
     max_retries = 3
     while bondyield is None:
         response = request_with_retries(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'lxml')
-        span = soup.find("span", {"id": "last_last"})
-        if span is None:
-            span = soup.select_one('span[data-test="instrument-price-last"]')
+
+        # with open("response.html", "w", encoding="utf-8") as f:
+        #     f.write(response.text)
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        span = soup.select_one('dd[data-test="prevClose"]')
         try:
             bondyield = round(float(span.text) / 100, 5)
         except:

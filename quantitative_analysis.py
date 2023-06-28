@@ -5,11 +5,12 @@ import pandas as pd
 import numpy as np
 import mongodb
 from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK, cik_from_ticker, download_financial_data
-from postgresql import get_df_from_table, get_generic_info, currency_bond_yield, get_industry_data
+from postgresql import get_df_from_table, get_generic_info
 from qualitative_analysis import get_last_document, extract_segments, geography_distribution
 from valuation_helper import convert_currencies, get_target_info, get_normalized_info, get_dividends_info, \
     get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation, \
-    r_and_d_amortization, get_growth_ttm, capitalize_rd, debtize_op_leases, get_roe_roc, get_spread_from_dscr
+    r_and_d_amortization, get_growth_ttm, capitalize_rd, debtize_op_leases, get_roe_roc, get_spread_from_dscr, \
+    company_complexity, company_share_diluition, get_company_type, currency_bond_yield, get_industry_data
 from yahoo_finance import get_current_price_from_yahoo
 
 EARNINGS_TTM = "EARNINGS_TTM"
@@ -2006,9 +2007,9 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     fx_rate = None
 
     if db_curr is None or db_curr.strip() == "":
-        return null_valuation(queue, ticker, price_per_share)
+        return null_valuation(price_per_share)
     if db_financial_curr is None or db_financial_curr.strip() == "":
-        return null_valuation(queue, ticker, price_per_share)
+        return null_valuation(price_per_share)
 
     # they are different
     if db_curr != db_financial_curr:
@@ -2213,7 +2214,9 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("\n===== Operating Leases =====")
         print("leases", leases)
         print("\n===== Segments =====\n")
-        if geo_segments_df is not None:
+        if geo_segments_df is None:
+            print("10-K not found. Check annual report on company website.")
+        else:
             print(geo_segments_df.to_markdown())
         print("\n===== Options =====")
         print("mr_sbc", mr_sbc)
@@ -2436,12 +2439,29 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     else:
         company_size = "Mega"
 
-    status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, debug)
+    complexity = company_complexity(doc, industry, company_size)
+    diluition = company_share_diluition(shares)
+
+    inventory = get_selected_years(data, "inventory", initial_year-1, final_year)
+    receivables = get_selected_years(data, "receivables", initial_year-1, final_year)
+    company_type = get_company_type(revenue_growth, mr_debt_adj, equity_mkt, liquidation_value, operating_margin_5y, industry)
 
     if debug:
+        print("===== Risk Assessment =====\n")
         print("MKT CAP USD: ", market_cap_USD)
-        print("\n\n")
+        print("company_size", company_size)
+        print("company complexity", complexity)
+        print("share diluition", round(diluition, 4))
+        print("revenue", revenue)
+        print("inventory", inventory)
+        print("receivables", receivables)
+        print("company_type", company_type)
+        print()
 
+    status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, complexity,
+                        diluition, revenue, receivables, inventory, company_type, debug)
+
+    if debug:
         print("FCFF values")
         print([round(x, 2) for x in fcff_values_list])
         print("\nFCFF values w/ Recession")
@@ -2463,6 +2483,6 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
 if __name__ == '__main__':
-    cik = cik_from_ticker("AEM")
+    cik = cik_from_ticker("BLDR")
     if cik != -1:
         valuation(cik, debug=True, years=6)
