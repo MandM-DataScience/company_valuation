@@ -1,4 +1,6 @@
 from configparser import ConfigParser
+
+from langchain.callbacks import get_openai_callback
 from langchain.chains.summarize import load_summarize_chain
 from langchain.chat_models import ChatOpenAI
 from summarizer import UnstructuredStringLoader, split_doc_in_chunks
@@ -112,13 +114,17 @@ def get_messages(company_name, ticker, exchange, form, filing_date, section_titl
     return messages
 
 
-def create_summary(section_text, model, verbose=False):
+def create_summary(section_text, model, chain_type="map_reduce", verbose=False):
     llm = ChatOpenAI(model_name=model, openai_api_key=parser.get("open_ai", "api_key"))
     string_loader = UnstructuredStringLoader(section_text)
     docs = split_doc_in_chunks(string_loader.load())
-    chain = load_summarize_chain(llm, chain_type="refine", verbose=verbose)
-    res = chain.run(docs)
-    return res
+    # chain = load_summarize_chain(llm, chain_type="refine", verbose=verbose)
+    chain = load_summarize_chain(llm, chain_type=chain_type, verbose=verbose)
+
+    with get_openai_callback() as cb:
+        res = chain.run(docs)
+
+    return res, cb.total_tokens
 
 
 def check_input_tokens(input_tokens, model):
@@ -126,7 +132,7 @@ def check_input_tokens(input_tokens, model):
     return input_tokens > MODEL_MAX_TOKENS[model] - 500
 
 
-def summarize_section(company, form, filing_date, section_title, section_text):
+def summarize_section(section_text, model="gpt-3.5-turbo", chain_type="map_reduce", verbose=False):
     """
     Create a summary for a document section.
     Output is a json {"data":["info1", "info2", ..., "infoN"]}
@@ -137,37 +143,10 @@ def summarize_section(company, form, filing_date, section_title, section_text):
     :param section_text: text input for the model
     :return: summary in json with a list of brief information points
     """
-    model = "gpt-3.5-turbo"
-    company_name = company["name"]
-    ticker = company["ticker"]
-    exchange = company["exchange"]
 
-    summary = create_summary(section_text, model)
+    summary, tokens = create_summary(section_text, model, chain_type, verbose)
 
-    messages = get_messages(company_name, ticker, exchange, form, filing_date, section_title, summary)
+    bullets = [x.strip() for x in summary.split(". ")]
+    cost = compute_cost(tokens, model=model)
 
-    input_tokens = num_tokens_from_messages(messages, model)
-
-    if check_input_tokens(input_tokens, model):
-        raise Exception(f"[{company_name} - {ticker}] The section '{section_title}' has too many input tokens to be managed with the following model '{model}'")
-
-    response = get_completion(messages, model)
-
-    usage = response["usage"]["total_tokens"]
-    cost = compute_cost(usage, model)
-    reply = response["choices"][0]["message"]["content"]
-
-    print(f"{usage} token ({input_tokens} as input), price {cost}$")
-
-    try:
-        reply = json.loads(reply)
-    except:
-        raise Exception(f"[{company_name} - {ticker}] The section '{section_title}' has generated an invalid reply with '{model}'")
-
-    reply["data"] = [x for x in reply["data"] if not "exhibit" in x.lower()]
-
-    # TODO further manage reply to remove useless information
-
-    # print(reply)
-
-    return reply
+    return bullets, cost
