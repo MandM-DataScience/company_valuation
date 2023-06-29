@@ -3,6 +3,7 @@ import json
 import os
 import re
 import time
+import traceback
 from datetime import datetime
 
 import Levenshtein as Levenshtein
@@ -13,9 +14,9 @@ import mongodb
 from edgar_utils import company_from_cik, AAPL_CIK, download_submissions_documents, download_all_cik_submissions
 import string
 
+from openai_interface import summarize_section
 
-
-list_items_strings = [
+list_10k_items = [
     "business",
     "risk factors",
     "unresolved staff comments",
@@ -38,7 +39,7 @@ list_items_strings = [
     "principal accountant fees and services",
     "exhibits and financial statement schedules",
 ]
-default_sections = {
+default_10k_sections = {
      1: {'item': 'item 1', 'title': ['business']},
      2: {'item': 'item 1a', 'title': ['risk factor']},
      3: {'item': 'item 1b', 'title': ['unresolved staff']},
@@ -61,7 +62,65 @@ default_sections = {
      20: {'item': 'item 14', 'title': ['principal accountant fees and services']},
      21: {'item': 'item 15', 'title': ['exhibits, financial statement schedules', 'exhibits and financial statement schedules']},
 }
-
+list_10q_items = [
+    "financial statement",
+    "risk factor",
+    "legal proceeding",
+    "mine safety disclosure",
+    "management’s discussion and analysis of financial condition and results of operations",
+    "quantitative and qualitative disclosures about market risk",
+    "controls and procedures",
+    "other information",
+    "unregistered sales of equity securities and use of proceeds",
+    "defaults upon senior securities",
+    "exhibits"
+]
+default_10q_sections = {
+    1: {'item': 'item 1', 'title': ['financial statement']},
+    2: {'item': 'item 2', 'title': ["management's discussion and analysis of financial condition and results of operations"]},
+    3: {'item': 'item 3', 'title': ['quantitative and qualitative disclosures about market risk']},
+    4: {'item': 'item 4', 'title': ['controls and procedures']},
+    5: {'item': 'item 1', 'title': ['legal proceeding']},
+    6: {'item': 'item 1a', 'title': ['risk factor']},
+    7: {'item': 'item 2', 'title': ["unregistered sales of equity securities and use of proceeds"]},
+    8: {'item': 'item 3', 'title': ["defaults upon senior securities"]},
+    9: {'item': 'item 4', 'title': ["mine safety disclosure"]},
+    10: {'item': 'item 5', 'title': ["other information"]},
+    11: {'item': 'item 6', 'title': ["exhibits"]},
+}
+default_8k_sections = {
+    1: {'item': 'item 1.01', 'title': ["entry into a material definitive agreement"]},
+    2: {'item': 'item 1.02', 'title': ["termination of a material definitive agreement"]},
+    3: {'item': 'item 1.03', 'title': ["bankruptcy or receivership"]},
+    4: {'item': 'item 1.04', 'title': ["mine safety"]},
+    5: {'item': 'item 2.01', 'title': ["completion of acquisition or disposition of asset"]},
+    6: {'item': 'item 2.02', 'title': ['results of operations and financial condition']},
+    7: {'item': 'item 2.03', 'title': ["creation of a direct financial obligation"]},
+    8: {'item': 'item 2.04', 'title': ["triggering events that accelerate or increase a direct financial obligation"]},
+    9: {'item': 'item 2.05', 'title': ["costs associated with exit or disposal activities"]},
+    10: {'item': 'item 2.06', 'title': ["material impairments"]},
+    11: {'item': 'item 3.01', 'title': ["notice of delisting or failure to satisfy a continued listing"]},
+    12: {'item': 'item 3.02', 'title': ["unregistered sales of equity securities"]},
+    13: {'item': 'item 3.03', 'title': ["material modification to rights of security holders"]},
+    14: {'item': 'item 4.01', 'title': ["changes in registrant's certifying accountant"]},
+    15: {'item': 'item 4.02', 'title': ["non-reliance on previously issued financial statements"]},
+    16: {'item': 'item 5.01', 'title': ["changes in control of registrant"]},
+    17: {'item': 'item 5.02', 'title': ['departure of directors or certain officers']},
+    18: {'item': 'item 5.03', 'title': ['amendments to articles of incorporation or bylaws']},
+    19: {'item': 'item 5.04', 'title': ["temporary suspension of trading under registrant"]},
+    20: {'item': 'item 5.05', 'title': ["amendment to registrant's code of ethics"]},
+    21: {'item': 'item 5.06', 'title': ["change in shell company status"]},
+    22: {'item': 'item 5.07', 'title': ['submission of matters to a vote of security holders']},
+    23: {'item': 'item 5.08', 'title': ["shareholder director nominations"]},
+    24: {'item': 'item 6.01', 'title': ["abs informational and computational material"]},
+    25: {'item': 'item 6.02', 'title': ['change of servicer or trustee']},
+    26: {'item': 'item 6.03', 'title': ['change in credit enhancement or other external support']},
+    27: {'item': 'item 6.04', 'title': ["failure to make a required distribution"]},
+    28: {'item': 'item 6.05', 'title': ["securities act updating disclosure"]},
+    29: {'item': 'item 7.01', 'title': ["regulation fd disclosure"]},
+    30: {'item': 'item 8.01', 'title': ['other events']},
+    31: {'item': 'item 9.01', 'title': ["financial statements and exhibits"]},
+}
 
 
 def string_similarity_percentage(string1, string2):
@@ -217,14 +276,18 @@ def find_possible_axis():
                     pass
 
 
-def identify_table_of_contents(soup):
+def identify_table_of_contents(soup, list_items):
+
+    if list_items is None:
+        return None
+
     max_table = 0
     chosen_table = None
     tables = soup.body.findAll("table")
     for t in tables:
         count = 0
 
-        for s in list_items_strings:
+        for s in list_items:
             r = t.find(string=re.compile(f'{s}', re.IGNORECASE))
             if r is not None:
                 count += 1
@@ -297,6 +360,8 @@ def get_sections_using_hrefs(soup, table_of_contents):
         hrefs[h]['title_candidates'] = list(hrefs[h]['title_candidates'])
         if len(hrefs[h]['title_candidates']) == 1:
             hrefs[h]['title'] = hrefs[h]['title_candidates'][0]
+        else:
+            hrefs[h]['title'] = "+++".join(hrefs[h]['title_candidates'])
 
     temp_s = sorted(hrefs.items(), key=lambda x: x[1]["idx"])
     for i, s in enumerate(temp_s):
@@ -329,7 +394,7 @@ def select_best_match(string_to_match, matches, start_index):
     return match
 
 
-def get_sections_using_strings(soup, table_of_contents):
+def get_sections_using_strings(soup, table_of_contents, default_sections):
     """
         Scan the chosen_table aka TABLE of CONTENTS and identify all text.
 
@@ -492,187 +557,84 @@ def get_sections_text_with_hrefs(soup, sections):
     return sections
 
 
-def parse_v4():
-    from bs4 import BeautifulSoup, Tag
+def parse_document(doc, form):
 
-    import mongodb
-    mdb_query = {"filing_date": {"$gt": "2023-02-20", "$lte": "2023-02-25"}}
-    docs = mongodb.get_collection("documents").find(mdb_query)
-    count = mongodb.get_collection("documents").count_documents(mdb_query)
-    enable_print = False
-    skip = False
-    only_test = False
-    ask_next = True
-    to_test = [
-        "https://www.sec.gov/Archives/edgar/data/61398/000006139823000011/tell-20221231.htm",
-    ]
-    _10k_no_sections = []
-    _10k_no_text = []
-    with_exception = []
-    _10k_no_toc = []
+    if form == "10-K":
+        include_forms = ["10-K", "10-K/A"]
+        list_items = list_10k_items
+        default_sections = default_10k_sections
+    elif form == "10-Q":
+        include_forms = ["10-Q"]
+        list_items = list_10q_items
+        default_sections = default_10q_sections
+    elif form == "8-K":
+        include_forms = ["8-K"]
+        list_items = None
+        default_sections = default_8k_sections
+    else:
+        print(f"return because form_type {form} is not valid")
+        return
 
-    for i, doc in enumerate(docs):
-        print(f"{i}/{count}")
-        url = doc["_id"]
-        form_type = doc["form_type"]
-        sections = {}
-        cik = doc["cik"]
-        filing_date = doc["filing_date"]
-        html = doc["html"]
+    url = doc["_id"]
+    form_type = doc["form_type"]
+    filing_date = doc["filing_date"]
+    sections = {}
+    cik = doc["cik"]
+    html = doc["html"]
 
-        if form_type not in ["10-K", "10-K/A"]:
-            # print("continue because form type")
-            continue
+    if form_type not in include_forms:
+        print(f"return because form_type != {form}")
+        return
 
-        if len(to_test) > 0 and doc['_id'] in to_test:
-            skip = False
-            enable_print = True
-        elif only_test:
-            skip = True
-        # else:
-        #     skip = True
+    company_info = company_from_cik(cik)
 
-        if skip:
-            # print("continue because skip")
-            continue
+    # no cik in cik_map
+    if company_info is None:
+        print("return because company info None")
+        return
 
-        print(url)
-        company_info = company_from_cik(cik)
+    print(f"form type: \t\t{form_type}")
+    print(company_info)
 
-        # no cik in cik_map
-        if company_info is None:
-            print("continue because company info None")
-            continue
+    soup = BeautifulSoup(html, features="html.parser")
 
-        print(f"form type: \t\t{form_type}")
-        print(company_info)
+    if soup.body is None:
+        print("return because soup.body None")
+        return
 
-        soup = BeautifulSoup(html, features="html.parser")
+    table_of_contents = identify_table_of_contents(soup, list_items)
 
-        if soup.body is None:
-            print("continue because soup.body None")
-            continue
+    if table_of_contents:
+        sections = get_sections_using_hrefs(soup, table_of_contents)
 
-        table_of_contents = identify_table_of_contents(soup)
+    if len(sections) == 0:
+        sections = get_sections_using_strings(soup, table_of_contents, default_sections)
 
-        if table_of_contents is None:
-            if "/A" in form_type:
-                print(f"{bcolors.OKGREEN}"
-                      f'{url} - {form_type} with NO TABLE OF CONTENTS'
-                      f"{bcolors.ENDC}")
-                _10k_no_toc.append(url)
-            else:
-                print(f"{bcolors.WARNING}"
-                      f'{url} - {form_type} with NO TABLE OF CONTENTS'
-                      f"{bcolors.ENDC}")
-                _10k_no_toc.append(url)
-            # continue
-            # input("NEXT")
-
-        if table_of_contents:
-            print("HAS TABLE OF CONTENTS")
-            sections = get_sections_using_hrefs(soup, table_of_contents)
-
-        if len(sections) == 0:
-            sections = get_sections_using_strings(soup, table_of_contents)
-        # else:
-        #     print(f"{bcolors.OKCYAN}"
-        #           f'TABLE OF CONTENTS AND HREFS'
-        #           f"{bcolors.ENDC}")
-        #
-        # if len(sections) == 0:
-        #     print(f"{bcolors.FAIL}"
-        #           f'{url} - {form_type} with NO SECTIONS'
-        #           f"{bcolors.ENDC}")
-        #     _10k_no_sections.append(url)
-
-        for s in sections:
-            if 'text' not in sections[s]:
-                print(f"{bcolors.FAIL}"
-                      f'{url} - {form_type} with NO TEXT'
-                      f"{bcolors.ENDC}")
-                _10k_no_text.append(url)
-
-        # print results
-        # if enable_print:
-        #     for s in sections:
-        #         end_el = None
-        #         if "end_el" in sections[s]:
-        #             end_el = sections[s]["end_el"]
-        #         if "text" in sections[s]:
-        #             sc = ''
-        #             ec = ''
-        #             if sections[s]['title'] is None:
-        #                 sc = f"{bcolors.OKBLUE}"
-        #                 ec = f"{bcolors.ENDC}"
-        #             print(sc, sections[s]["idx"], s, sections[s]["title"], sections[s]["title_candidates"],
-        #                   sections[s]["start_el"], end_el, len(sections[s]["text"]), ec)
-        #         else:
-        #             print(f"{bcolors.WARNING}"
-        #                   f' {sections[s]["idx"]} | {s} |{sections[s]["title"]} | {sections[s]["start_el"]} | {end_el} | has no TEXT'
-        #                   f"{bcolors.ENDC}")
-
-        business_section = find_business_section(sections)
-        if business_section is not None:
-            if 'text' in business_section:
-                business_text = business_section['text']
-                business_text = re.sub('\n', ' ', business_text)
-                business_text = re.sub(' +', ' ', business_text)
-                result = {
-                    '_id': url,
-                    'business': business_text,
-                }
-                mongodb.upsert_document("parsed_documents", result)
-
-        # find_auditor(soup, sections)
-        if ask_next:
-            input("NEXT")
-
-    # print("10K NO TABLE OF CONTENTS")
-    # for ns in _10k_no_toc:
-    #     print(ns)
-    #
-    # print("10K NO SECTIONS")
-    # for ns in _10k_no_sections:
-    #     print(ns)
-    #
-    # print("10K NO TEXT")
-    # for ns in _10k_no_text:
-    #     print(ns)
-    #
-    # print("WITH EXCEPTION")
-    # for ns in with_exception:
-    #     print(ns)
-
-    print("END")
-
-
-def find_business_section(sections):
-    has_business = None
     for s in sections:
-        sec = sections[s]
+        if 'text' not in sections[s]:
+            print(f"{bcolors.FAIL}"
+                  f'{url} - {form_type} with NO TEXT'
+                  f"{bcolors.ENDC}")
 
-        if 'title' in sec and sec['title'] is not None and 'business' in sec['title'].lower():
-            has_business = sec
+    result = {"_id": url, "cik": cik, "form_type":form_type, "filing_date": filing_date, "sections":{}}
 
-        if has_business is None and 'title_candidates' in sec:
-            for tc in sec['title_candidates']:
-                if 'business' in tc.lower():
-                    has_business = sec
-                    break
-        if has_business is None and 'item' in sec and 'item 1' == sec['item']:
-            has_business = sec
-    if has_business is None:
-        print(f"{bcolors.FAIL}"
-              f'NO BUSINESS'
-              f"{bcolors.ENDC}")
+    for s in sections:
+        section = sections[s]
+        if 'text' in section:
+            text = section['text']
+            text = re.sub('\n', ' ', text)
+            text = re.sub(' +', ' ', text)
+            result["sections"][section["title"]] = text
 
-        for s in sections:
-            sec = sections[s]
-            del sec['text']
-            print(sec)
+    try:
+        mongodb.upsert_document("parsed_documents", result)
+    except:
+        traceback.print_exc()
+        print(result.keys())
+        print(result["sections"].keys())
 
-    return has_business
+
+    # business_section = find_business_section(sections)
 
 
 def find_auditor(soup, sections):
@@ -733,8 +695,3 @@ def test():
             "https://www.sec.gov/Archives/edgar/data/315213/000031521323000016/rhi-20221231.htm" # item from 10 to 14 are missing in filing
         ]
     }
-
-
-if __name__ == '__main__':
-    # parse_v4()
-    url = 'https://www.sec.gov/Archives/edgar/data/8818/000000881823000002/avy-20221231.htm'

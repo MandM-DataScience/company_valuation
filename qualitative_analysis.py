@@ -1,3 +1,4 @@
+import time
 import traceback
 from datetime import datetime
 
@@ -10,34 +11,171 @@ from openai_interface import summarize_section
 from postgresql import get_df_from_table, country_to_region
 
 
-def sections_summary(url):
+def restructure_parsed_10k(doc):
+
+    result = {
+        "business": "", # important
+        "risk": "",       # important
+        "unresolved": "",
+        "property": "",
+        "MD&A": "",     # important
+        "legal": "",
+        "foreign": "",
+        # "notes": "",
+        "other": ""
+    }
+
+    for s in doc["sections"]:
+
+        found = None
+        if ("business" in s.lower() or "overview" in s.lower() or "company" in s.lower() or "general" in s.lower() or "outlook" in s.lower())\
+                and not "combination" in s.lower():
+            found = "business"
+        elif "propert" in s.lower() and not "plant" in s.lower() and not "business" in s.lower():
+            found = "property"
+        elif "foreign" in s.lower() and "jurisdiction" in s.lower():
+            found = "foreign"
+        elif "legal" in s.lower() and "proceeding" in s.lower():
+            found = "legal"
+        elif "management" in s.lower() and "discussion" in s.lower():
+            found = "MD&A"
+        # elif "supplementa" in s.lower() or ("note" in s.lower() and "statement" not in s.lower()):
+        #     found = "notes"
+        elif "information" in s.lower() and "other" in s.lower():
+            found = "other"
+        elif "unresolved" in s.lower():
+            found = "unresolved"
+        elif "risk" in s.lower():
+            found = "risk"
+
+        if found is not None:
+            result[found] = doc["sections"][s]
+
+    return result
+
+def restructure_parsed_10q(doc):
+    result = {
+        "risk": "",  # important
+        "MD&A": "",  # important
+        "legal": "",
+        "other": "",
+        "equity": "",
+        "defaults": "",
+    }
+
+    for s in doc["sections"]:
+
+        found = None
+        if "legal" in s.lower() and "proceeding" in s.lower():
+            found = "legal"
+        elif "management" in s.lower() and "discussion" in s.lower():
+            found = "MD&A"
+        elif "information" in s.lower() and "other" in s.lower():
+            found = "other"
+        elif "risk" in s.lower():
+            found = "risk"
+        elif "sales" in s.lower() and "equity" in s.lower():
+            found = "equity"
+        elif "default" in s.lower():
+            found = "defaults"
+
+        if found is not None:
+            result[found] = doc["sections"][s]
+
+    return result
+
+def restructure_parsed_8k(doc):
+
+    result = {}
+
+    for s in doc["sections"]:
+        if "financial statements and exhibits" in s.lower():
+            continue
+        result[s] = doc["sections"][s]
+
+    return result
+
+def sections_summary(doc, verbose=False):
     """
     Summarize all sections of a document using openAI API.
     Upsert summary on mongodb (overwrite previous one, in case we make changes to openai_interface)
     :param url: url of the document, used as id on mongodb
     :return:
     """
-    doc = mongodb.get_document("documents",url)
-    parsed_doc = mongodb.get_document("parsed_documents", url)
-    company = company_from_cik(doc["cik"])
 
+    company = company_from_cik(doc["cik"])
     result = {"_id": doc["_id"],
               "name": company["name"],
               "ticker": company["ticker"],
               "form_type": doc["form_type"],
               "filing_date": doc["filing_date"]}
 
-    for section_title, section_text in parsed_doc.items():
+    total_cost = 0
+    total_start_time = time.time()
 
-        # if no section to summarize, skip
-        if section_title == "_id" or len(section_text) == 0:
+    if "10-K" in doc["form_type"]:
+        new_doc = restructure_parsed_10k(doc)
+    elif doc["form_type"] == "10-Q":
+        new_doc = restructure_parsed_10q(doc)
+    elif doc["form_type"] == "8-K":
+        new_doc = restructure_parsed_8k(doc)
+    else:
+        print(f"form_type {doc['form_type']} is not yet implemented")
+        return
+
+    for section_title, section_text in new_doc.items():
+
+        start_time = time.time()
+
+        if len(section_text) < 500:
             continue
 
+        if section_title in ["business", "risk", "MD&A"]:
+            chain_type = "refine"
+
+            if len(section_text) > 50000:
+                model = "gpt-3.5-turbo-16k"
+            else:
+                model = "gpt-3.5-turbo"
+
+        else:
+            if len(section_text) < 50000:
+                chain_type = "refine"
+                model = "gpt-3.5-turbo"
+            elif len(section_text) < 100000:
+                chain_type = "map_reduce"
+                model = "gpt-3.5-turbo"
+            else:
+                chain_type = "map_reduce"
+                model = "gpt-3.5-turbo-16k"
+
+        original_len = len(section_text)
+
         # get summary from openAI model
-        summary = summarize_section(company, doc["form_type"], doc["filing_date"], section_title, section_text)
+        print(f"{section_title} original_len: {original_len} use {model} w/ chain {chain_type}")
+        summary, cost = summarize_section(section_text, model, chain_type, verbose)
+
+        # summary = ""
+        # cost = 0
+        # print(summary)
+        # return
+
         result[section_title] = summary
 
+        summary_len = len(''.join(summary))
+        reduction = 100 - round(summary_len / original_len * 100, 2)
+
+        total_cost += cost
+        duration = round(time.time() - start_time, 1)
+
+        print(f"{section_title} original_len: {original_len} summary_len: {summary_len} reduction: {reduction}% "
+              f"cost: {cost}$ duration:{duration}s used {model} w/ chain {chain_type}")
+
     mongodb.upsert_document("items_summary", result)
+
+    total_duration = round(time.time() - total_start_time, 1)
+
+    print(f"\nTotal Cost: {total_cost}$, Total duration: {total_duration}s")
 
 
 def extract_segments(doc):
@@ -282,10 +420,11 @@ def get_last_document(cik, form_type, downloaded=False):
         if downloaded:
             return None
         download_all_cik_submissions(cik)
-        download_submissions_documents(cik, forms_to_download=("10-K",), years=2)
+        download_submissions_documents(cik, forms_to_download=("10-K",), years=1)
         return get_last_document(cik, form_type, downloaded=True)
 
     return last_doc
+
 
 if __name__ == '__main__':
 
