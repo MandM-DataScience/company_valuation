@@ -158,7 +158,7 @@ def download_submissions_documents(cik, forms_to_download=("10-Q", "10-K", "8-K"
         # insert a quick sleep to avoid reaching edgar rate limit
         time.sleep(0.2)
 
-def download_document(url, cik, form_type, filing_date, updated_at):
+def download_document(url, cik, form_type, filing_date, updated_at=None):
     '''
     Download and insert submission document
     :param url:

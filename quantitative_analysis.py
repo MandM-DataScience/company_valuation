@@ -1887,6 +1887,7 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
     # Check if we have submissions (at least the last 10k)
 
     try:
+        # TODO download updated financial info for cik
         data = extract_company_financial_information(cik)
     except NoSharesException:
         print(cik, "no shares")
