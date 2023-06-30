@@ -15,15 +15,15 @@ from postgresql import get_df_from_table, country_to_region
 def restructure_parsed_10k(doc):
 
     result = {
-        "business": "", # important
-        "risk": "",       # important
-        "unresolved": "",
-        "property": "",
-        # "MD&A": "",     # important
-        "legal": "",
-        "foreign": "",
-        # "notes": "",
-        "other": ""
+        "business": {"text":"", "links":[]}, # important
+        "risk": {"text":"", "links":[]},       # important
+        "unresolved": {"text":"", "links":[]},
+        "property": {"text":"", "links":[]},
+        # "MD&A": {"text":"", "links":[]},     # important
+        "legal": {"text":"", "links":[]},
+        "foreign": {"text":"", "links":[]},
+        # "notes": {"text":"", "links":[]},
+        "other": {"text":"", "links":[]}
     }
 
     for s in doc["sections"]:
@@ -50,18 +50,22 @@ def restructure_parsed_10k(doc):
             found = "risk"
 
         if found is not None:
-            result[found] += doc["sections"][s]
+            result[found]["text"] += doc["sections"][s]["text"]
+            result[found]["links"].append({
+                "title": s,
+                "link": doc["sections"][s]["link"] if "link" in doc["sections"][s] else None
+            })
 
     return result
 
 def restructure_parsed_10q(doc):
     result = {
-        "risk": "",  # important
-        "MD&A": "",  # important
-        "legal": "",
-        "other": "",
-        "equity": "",
-        "defaults": "",
+        "risk": {"text":"", "links":[]},  # important
+        "MD&A": {"text":"", "links":[]},  # important
+        "legal": {"text":"", "links":[]},
+        "other": {"text":"", "links":[]},
+        "equity": {"text":"", "links":[]},
+        "defaults": {"text":"", "links":[]},
     }
 
     for s in doc["sections"]:
@@ -81,7 +85,11 @@ def restructure_parsed_10q(doc):
             found = "defaults"
 
         if found is not None:
-            result[found] += doc["sections"][s]
+            result[found]["text"] += doc["sections"][s]["text"]
+            result[found]["links"].append({
+                "title": s,
+                "link": doc["sections"][s]["link"] if "link" in doc["sections"][s] else None
+            })
 
     return result
 
@@ -124,7 +132,10 @@ def sections_summary(doc, verbose=False):
         print(f"form_type {doc['form_type']} is not yet implemented")
         return
 
-    for section_title, section_text in new_doc.items():
+    for section_title, section in new_doc.items():
+
+        section_links = section["links"]
+        section_text = section["text"]
 
         start_time = time.time()
 
@@ -167,7 +178,7 @@ def sections_summary(doc, verbose=False):
         # print(summary)
         # return
 
-        result[section_title] = summary
+        result[section_title] = {"summary":summary, "links": section_links}
 
         summary_len = len(''.join(summary))
         reduction = 100 - round(summary_len / original_len * 100, 2)
