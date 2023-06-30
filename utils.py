@@ -637,36 +637,55 @@ def parse_document(doc, form):
     # business_section = find_business_section(sections)
 
 
-def find_auditor(soup, sections):
-    auditor_start_string = 'Report of Independent Registered Public Accounting Firm'.lower()
-    auditor_string = ""
+def find_auditor(doc):
+
+    soup = BeautifulSoup(doc["html"], features="html.parser")
+
+    # auditor_start_string = 'Report of Independent Registered Public Accounting Firm'.lower()
+
+    # auditor_string = ""
     body = unidecode(soup.body.get_text(separator=" "))
     body = re.sub('\n', ' ', body)
     body = re.sub(' +', ' ', body)
 
-    for s in sections:
-        sec = sections[s]
-        if auditor_start_string in sec['text'].lower():
-            start_sig = 0
-            while start_sig != -1:
-                start_sig = sec['text'].lower().find(auditor_start_string, start_sig)
-                if start_sig != -1:
-                    start_sig = sec['text'].find('s/', start_sig)
-                    end_sig = sec['text'].find('.', start_sig)
-                    auditor_candidate = sec['text'][start_sig: end_sig]
-                    if 'auditor' in auditor_candidate.lower():
-                        auditor_string += sec['text'][start_sig: end_sig] + "\n"
+    start_sig = 0
+    while start_sig != -1:
+        start_sig = body.find('s/', start_sig+1)
+        auditor_candidate = body[start_sig: start_sig+200]
 
-    auditor_start_string = 'auditor'
-    if auditor_string == "":
-        if auditor_start_string in body.lower():
-            start_sig = 0
-            while start_sig != -1:
-                start_sig = body.lower().find(auditor_start_string, start_sig + len(auditor_start_string))
-                if start_sig != -1:
-                    auditor_string += body[start_sig - 100: start_sig + 100] + "\n"
+        # print(auditor_candidate)
+        if 'auditor since' in auditor_candidate.lower():
+            pattern = r"s/.+auditor since.*?\d{4}"
 
-    print(auditor_string)
+            try:
+                match = re.findall(pattern, auditor_candidate)[0]
+                return match.replace("s/", "").strip()
+            except:
+                pass
+
+    # print(auditor_string)
+
+    # if auditor_start_string in body.lower():
+    #     start_sig = 0
+    #     while start_sig != -1:
+    #         start_sig = body.lower().find(auditor_start_string, start_sig)
+    #         if start_sig != -1:
+    #             start_sig = body.find('s/', start_sig)
+    #             end_sig = body.find('.', start_sig)
+    #             auditor_candidate = body[start_sig: end_sig]
+    #             if 'auditor since' in auditor_candidate.lower():
+    #                 auditor_string += body[start_sig: end_sig] + "\n"
+    # if auditor_string == "":
+    #     auditor_start_string = 'auditor'
+    #     if auditor_start_string in body.lower():
+    #         start_sig = 0
+    #         while start_sig != -1:
+    #             start_sig = body.lower().find(auditor_start_string, start_sig + len(auditor_start_string))
+    #             if start_sig != -1:
+    #                 auditor_string += body[start_sig - 100: start_sig + 100] + "\n"
+    #                 print(auditor_string)
+
+    # return auditor_string
 
 
 class bcolors:

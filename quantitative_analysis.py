@@ -8,7 +8,7 @@ from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK, cik_from_ticker, d
 from postgresql import get_df_from_table, get_generic_info
 from qualitative_analysis import get_last_document, extract_segments, geography_distribution, get_recent_docs, \
     sections_summary
-from utils import parse_document
+from utils import parse_document, find_auditor
 from valuation_helper import convert_currencies, get_target_info, get_normalized_info, get_dividends_info, \
     get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation, \
     r_and_d_amortization, get_growth_ttm, capitalize_rd, debtize_op_leases, get_roe_roc, get_spread_from_dscr, \
@@ -2454,6 +2454,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     inventory = get_selected_years(data, "inventory", initial_year-1, final_year)
     receivables = get_selected_years(data, "receivables", initial_year-1, final_year)
     company_type = get_company_type(revenue_growth, mr_debt_adj, equity_mkt, liquidation_value, operating_margin_5y, industry)
+    auditor = find_auditor(doc)
 
     if debug:
         print("===== Risk Assessment =====\n")
@@ -2465,6 +2466,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("inventory", inventory)
         print("receivables", receivables)
         print("company_type", company_type)
+        print("Auditor", auditor)
         print()
 
     status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, company_type, dilution, complexity,
