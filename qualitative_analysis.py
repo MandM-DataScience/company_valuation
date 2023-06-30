@@ -3,6 +3,7 @@ import traceback
 from datetime import datetime
 
 import pandas as pd
+import pymongo
 from bs4 import BeautifulSoup
 
 import mongodb
@@ -18,7 +19,7 @@ def restructure_parsed_10k(doc):
         "risk": "",       # important
         "unresolved": "",
         "property": "",
-        "MD&A": "",     # important
+        # "MD&A": "",     # important
         "legal": "",
         "foreign": "",
         # "notes": "",
@@ -37,8 +38,8 @@ def restructure_parsed_10k(doc):
             found = "foreign"
         elif "legal" in s.lower() and "proceeding" in s.lower():
             found = "legal"
-        elif "management" in s.lower() and "discussion" in s.lower():
-            found = "MD&A"
+        # elif "management" in s.lower() and "discussion" in s.lower():
+        #     found = "MD&A"
         # elif "supplementa" in s.lower() or ("note" in s.lower() and "statement" not in s.lower()):
         #     found = "notes"
         elif "information" in s.lower() and "other" in s.lower():
@@ -49,7 +50,7 @@ def restructure_parsed_10k(doc):
             found = "risk"
 
         if found is not None:
-            result[found] = doc["sections"][s]
+            result[found] += doc["sections"][s]
 
     return result
 
@@ -80,7 +81,7 @@ def restructure_parsed_10q(doc):
             found = "defaults"
 
         if found is not None:
-            result[found] = doc["sections"][s]
+            result[found] += doc["sections"][s]
 
     return result
 
@@ -127,8 +128,14 @@ def sections_summary(doc, verbose=False):
 
         start_time = time.time()
 
-        if len(section_text) < 500:
+        if len(section_text) < 250:
             continue
+
+        # if section_title != "risk":
+        #     continue
+        # else:
+        #     print(section_text)
+        #     return
 
         if section_title in ["business", "risk", "MD&A"]:
             chain_type = "refine"
@@ -176,7 +183,6 @@ def sections_summary(doc, verbose=False):
     total_duration = round(time.time() - total_start_time, 1)
 
     print(f"\nTotal Cost: {total_cost}$, Total duration: {total_duration}s")
-
 
 def extract_segments(doc):
     """
@@ -404,7 +410,11 @@ def try_geo_segments():
     # geography_distribution(segments, "hes")
 
 
-def get_last_document(cik, form_type, downloaded=False):
+def get_last_document(cik, form_type):
+
+    download_all_cik_submissions(cik)
+    download_submissions_documents(cik, forms_to_download=("10-K", "10-Q", "8-K",), years=1)
+
     collection = mongodb.get_collection("documents")
     docs = collection.find({"cik": cik, "form_type": form_type})
 
@@ -416,14 +426,16 @@ def get_last_document(cik, form_type, downloaded=False):
             last_date = filing_date
             last_doc = doc
 
-    if last_doc is None:
-        if downloaded:
-            return None
-        download_all_cik_submissions(cik)
-        download_submissions_documents(cik, forms_to_download=("10-K",), years=1)
-        return get_last_document(cik, form_type, downloaded=True)
-
     return last_doc
+
+def get_recent_docs(cik, filing_date):
+    collection = mongodb.get_collection("documents")
+    docs = collection.find({"cik": cik, "filing_date": {"$gte":filing_date}})
+
+    # sort by date asc
+    docs = docs.sort("filing_date", pymongo.ASCENDING)
+
+    return docs
 
 
 if __name__ == '__main__':

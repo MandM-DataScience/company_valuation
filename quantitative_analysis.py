@@ -6,7 +6,9 @@ import numpy as np
 import mongodb
 from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK, cik_from_ticker, download_financial_data
 from postgresql import get_df_from_table, get_generic_info
-from qualitative_analysis import get_last_document, extract_segments, geography_distribution
+from qualitative_analysis import get_last_document, extract_segments, geography_distribution, get_recent_docs, \
+    sections_summary
+from utils import parse_document
 from valuation_helper import convert_currencies, get_target_info, get_normalized_info, get_dividends_info, \
     get_final_info, calculate_liquidation_value, dividends_valuation, fcff_valuation, get_status, summary_valuation, \
     r_and_d_amortization, get_growth_ttm, capitalize_rd, debtize_op_leases, get_roe_roc, get_spread_from_dscr, \
@@ -1859,7 +1861,7 @@ def null_valuation(price_per_share=0):
 
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
-def valuation(cik, years=5, recession_probability = 0.5, debug=False):
+def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debug=False):
     """
     Compute valuation for company. Valuation is done following principles teached by Prof. Damodaran in his Valuation
     Course (FCFF Valuation and Dividends Valuation).
@@ -2486,6 +2488,35 @@ def valuation(cik, years=5, recession_probability = 0.5, debug=False):
         print("Dividends Result", ev_dividends)
         print("Dividends Deviation", div_delta)
         print("Status", status)
+
+
+    if qualitative and doc is not None:
+        recent_docs = get_recent_docs(cik, doc["filing_date"])
+        for d in recent_docs:
+
+            print("##############")
+            print(d["form_type"], d["filing_date"], d["_id"])
+            print("##############\n")
+
+            if not mongodb.check_document_exists("parsed_documents", d["_id"]):
+                parse_document(d, d["form_type"])
+
+            parsed_doc = mongodb.get_document("parsed_documents", d["_id"])
+
+            if not mongodb.check_document_exists("items_summary", d["_id"]):
+                sections_summary(parsed_doc)
+
+            summary_doc = mongodb.get_document("items_summary", d["_id"])
+
+            for k, v in summary_doc.items():
+                if isinstance(v, list):
+                    print(f"=== {k} ===")
+                    for el in v:
+                        print(el)
+                    print()
+
+            print("\n")
+
 
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 
