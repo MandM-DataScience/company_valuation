@@ -11,6 +11,19 @@ from dateutil.relativedelta import relativedelta
 from investing_com import get_10y_bond_yield
 import numpy as np
 
+area_to_repr_country = {
+    "Africa": "SouthAfrica",
+    "Asia": "China",
+    "Australia&NewZealand": "Australia",
+    "Caribbean": "Cuba",
+    "CentralandSouthAmerica": "Mexico",
+    "EasternEurope&Russia": "Russia",
+    "MiddleEast": "Saudi Arabia",
+    "North America": "United States",
+    "Western Europe": "Germany",
+    "Global": "Russia"
+}
+
 country_to_region = {
     "Guernsey": "Global",
     "CzechRepublic": "emerg",
