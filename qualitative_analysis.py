@@ -13,7 +13,11 @@ from postgresql import get_df_from_table, country_to_region
 
 
 def restructure_parsed_10k(doc):
-
+    """
+    Look for and select only the sections specified in result dictionary.
+    :param doc: mongo document from "documents" collection
+    :return: a dictionary containing the parsed document sections titles and their text.
+    """
     result = {
         "business": "", # important
         "risk": "",       # important
@@ -100,7 +104,12 @@ def sections_summary(doc, verbose=False):
     """
     Summarize all sections of a document using openAI API.
     Upsert summary on mongodb (overwrite previous one, in case we make changes to openai_interface)
-    :param url: url of the document, used as id on mongodb
+
+    This method is configured to use gpt-3.5-turbo. At the moment this model has two different version,
+    a version with 4k token and a version with 16k tokens. That are used with based on the length of a sections.
+
+    :param doc: a parsed_document from mongodb
+    :param verbose: passed to langchain verbose
     :return:
     """
 
@@ -125,17 +134,9 @@ def sections_summary(doc, verbose=False):
         return
 
     for section_title, section_text in new_doc.items():
-
         start_time = time.time()
-
         if len(section_text) < 250:
             continue
-
-        # if section_title != "risk":
-        #     continue
-        # else:
-        #     print(section_text)
-        #     return
 
         if section_title in ["business", "risk", "MD&A"]:
             chain_type = "refine"
@@ -144,7 +145,6 @@ def sections_summary(doc, verbose=False):
                 model = "gpt-3.5-turbo-16k"
             else:
                 model = "gpt-3.5-turbo"
-
         else:
             if len(section_text) < 50000:
                 chain_type = "refine"
@@ -162,11 +162,6 @@ def sections_summary(doc, verbose=False):
         print(f"{section_title} original_len: {original_len} use {model} w/ chain {chain_type}")
         summary, cost = summarize_section(section_text, model, chain_type, verbose)
 
-        # summary = ""
-        # cost = 0
-        # print(summary)
-        # return
-
         result[section_title] = summary
 
         summary_len = len(''.join(summary))
@@ -183,6 +178,7 @@ def sections_summary(doc, verbose=False):
     total_duration = round(time.time() - total_start_time, 1)
 
     print(f"\nTotal Cost: {total_cost}$, Total duration: {total_duration}s")
+
 
 def extract_segments(doc):
     """

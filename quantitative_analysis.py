@@ -1885,9 +1885,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     """
 
     # Check if we have financial data
-
     # Check if we have submissions (at least the last 10k)
-
     try:
         # TODO download updated financial info for cik
         data = extract_company_financial_information(cik)
@@ -1902,6 +1900,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print(data)
         print()
 
+    # Look for company revenues
     try:
         final_year = data["revenue"]["dates"][-1]
         initial_year = final_year - years + 1
@@ -1909,41 +1908,51 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print(cik, "no revenue")
         return null_valuation()
 
+    # Calculate ERP
     erp = get_df_from_table("damodaran_erp")
     erp = erp[erp["date"] == erp["date"].max()]["value"].iloc[0]
 
+    # Retrieve company info
     company_info = company_from_cik(cik)
     ticker = company_info["ticker"]
 
+    # Get current price per share from yahoo
     price_per_share = get_current_price_from_yahoo(ticker)
     if price_per_share is None:
         print(ticker, "delisted")
         return null_valuation()
 
+    # Get generic info
     try:
         company_name, country, industry, region = get_generic_info(ticker)
     except IndexError:
         print(ticker, "not found in db")
         return null_valuation()
 
+    # Retrieve currency and financial currency from postgreSQL DB
     yahoo_equity_ticker = get_df_from_table("yahoo_equity_tickers", f"where symbol = '{ticker}'", most_recent=True).iloc[0]
     db_curr = yahoo_equity_ticker["currency"]
     db_financial_curr = yahoo_equity_ticker["financial_currency"]
 
+    # Retrieve bond_spread from postgreSQL DB
     damodaran_bond_spread = get_df_from_table("damodaran_bond_spread", most_recent=True)
     damodaran_bond_spread["greater_than"] = pd.to_numeric(damodaran_bond_spread["greater_than"])
     damodaran_bond_spread["less_than"] = pd.to_numeric(damodaran_bond_spread["less_than"])
 
+    # Make sure to retrieve last annual report (10-K on SEC)
     doc = get_last_document(cik, "10-K")
 
+    # Extract business segments and geographic distributions
     if doc is not None:
         segments = extract_segments(doc)
         geo_segments_df = geography_distribution(segments, ticker)
     else:
         geo_segments_df = None
 
+    # Retrieve country statistics from postgreSQL DB
     country_stats = get_df_from_table("damodaran_country_stats", most_recent=True)
 
+    # Compute tax rate, country default spread anc country risk premium based on company country
     tax_rate = 0
     country_default_spread = 0
     country_risk_premium = 0
@@ -1956,7 +1965,6 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         tax_rate = float(filter_df["tax_rate"])
         country_default_spread = float(filter_df["adjusted_default_spread"])
         country_risk_premium = float(filter_df["country_risk_premium"])
-
     else:
         for _, row in geo_segments_df.iterrows():
             percent = row["value"]
@@ -1975,17 +1983,19 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
             country_default_spread += cds * percent
             country_risk_premium += crp * percent
 
+    # Compute final ERP adding country risk premium
     final_erp = float(erp) + country_risk_premium
 
-    # print("country", country)
-    # print("db_fin_cur", db_financial_curr)
-
+    # Select alpha_3_code from company country
     try:
         alpha_3_code = country_stats[country_stats["country"] == country.replace(" ", "")].iloc[0]["alpha_3_code"]
     except:
         alpha_3_code = None
+
+    # Retrieve the risk free based on the company financial currency and the country statistics
     riskfree = currency_bond_yield(db_financial_curr, alpha_3_code, country_stats)
 
+    # Check if the riskfree
     if riskfree == -1:
         print(ticker, "no riskfree")
         return null_valuation(price_per_share)
@@ -2003,25 +2013,24 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("erp", erp)
         print("\n\n")
 
+    # Retrive shares number
     mr_shares = data["mr_shares"]["value"] / 1000
     shares = get_selected_years(data, "shares", initial_year, final_year)
 
-    # CONVERT CURRENCY
+    # Convert Currency to USD
     fx_rate = None
-
     if db_curr is None or db_curr.strip() == "":
         return null_valuation(price_per_share)
     if db_financial_curr is None or db_financial_curr.strip() == "":
         return null_valuation(price_per_share)
-
     # they are different
     if db_curr != db_financial_curr:
         fx_rate = convert_currencies(db_curr, db_financial_curr)
-
     fx_rate_financial_USD = 1
     if db_financial_curr != "USD":
         fx_rate_financial_USD = convert_currencies("USD", db_financial_curr)
 
+    # Select financial data and
     ttm_revenue = data["ttm_revenue"]["value"] / 1000
     ttm_ebit = data["ttm_ebit"]["value"] / 1000
     ttm_net_income = data["ttm_net_income"]["value"] / 1000
@@ -2039,18 +2048,16 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     equity_bv = get_selected_years(data, "equity", initial_year, final_year)
     cash = get_selected_years(data, "cash", initial_year, final_year)
     securities = get_selected_years(data, "securities", initial_year, final_year)
-
     debt_bv = get_selected_years(data, "debt", initial_year, final_year)
-
     revenue = get_selected_years(data, "revenue", initial_year-1, final_year)
+
+    # Compute revenue growth
     revenue_growth = []
     revenue_delta = []
     for i in range(len(revenue) - 1):
-
         if revenue[i] < 0:
             print("negative revenue")
             return null_valuation(price_per_share)
-
         revenue_delta.append(revenue[i + 1] - revenue[i])
         try:
             revenue_growth.append(revenue[i + 1] / revenue[i] - 1)
@@ -2061,19 +2068,21 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     revenue = revenue[1:]
     revenue_growth = revenue_growth[1:]
 
+    # Compute R&D
     try:
         r_and_d_amortization_years = r_and_d_amortization[industry]
     except:
         print(f"\n#######\nCould not find industry: {industry} mapping. "
               f"Check r_and_d_amortization dictionary.\n#######\n")
         r_and_d_amortization_years = 5
+
     r_and_d = get_selected_years(data, "rd", final_year - r_and_d_amortization_years, final_year)
     while len(r_and_d) < years:
         r_and_d.insert(0, 0)
-
     ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy = \
         capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years)
 
+    # Compute Adjusted values
     ttm_ebit_adj = ttm_ebit + ebit_r_and_d_adj[-1]
     ebit_adj = [sum(x) for x in zip(ebit, ebit_r_and_d_adj)]
     ttm_net_income_adj = ttm_net_income + ebit_r_and_d_adj[-1]
@@ -2083,7 +2092,9 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     capex_adj = [sum(x) for x in zip(capex, r_and_d[-years:])]
     depreciation_adj = [sum(x) for x in zip(depreciation, r_and_d_amortization_cy)]
     ebit_after_tax = [sum(x) for x in zip([x * (1 - tax_rate) for x in ebit_adj], tax_benefit)]
+    ttm_eps_adj = ttm_net_income_adj / mr_shares
 
+    # Select Operating Leases
     leases = [
         data["mr_op_leases_expense"]["value"] / 1000,
         data["mr_op_leases_next_year"]["value"] / 1000,
@@ -2094,12 +2105,10 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         data["mr_op_leases_after_5year"]["value"] / 1000,
     ]
     last_year_leases = max([i for i, x in enumerate(leases) if x != 0], default=-1)
-
     if last_year_leases != -1:
         ebit_op_adj, int_exp_op_adj, debt_adj, tax_benefit_op, company_default_spread = \
             debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread, riskfree, country_default_spread,
                           leases, last_year_leases, tax_rate, revenue_growth)
-
         ttm_ebit_adj += ebit_op_adj[-1]
         ttm_interest_expense_adj = ttm_interest_expense + int_exp_op_adj
         mr_debt_adj = mr_debt + debt_adj[-1]
@@ -2108,10 +2117,6 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         ebit_after_tax = [sum(x) for x in zip(ebit_after_tax, tax_benefit_op)]
 
         ttm_ebit_after_tax = ttm_ebit_adj * (1 - tax_rate) + tax_benefit[-1] + tax_benefit_op[-1]
-
-        # print("tax benefit rd", tax_benefit)
-        # print("tax benefit op leas", tax_benefit_op)
-
     # no leases
     else:
         ttm_interest_expense_adj = ttm_interest_expense
@@ -2120,64 +2125,54 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         company_default_spread = get_spread_from_dscr(12.5, damodaran_bond_spread)
         ttm_ebit_after_tax = ttm_ebit_adj * (1 - tax_rate) + tax_benefit[-1]
 
-
+    # Compute cost of debt
     cost_of_debt = riskfree + country_default_spread + company_default_spread
 
+    # Compute cash and securities
     mr_cash_and_securities = mr_cash + mr_securities
     cash_and_securities = [sum(x) for x in zip(cash, securities)]
 
-    # print("CASH", cash)
-    # print("SECURITIES", securities)
-    # print("CASH+SEC", cash_and_securities)
-
     # consider EPS/dividends as with most recent number of shares (to account for splits and buybacks)
-    eps = [x/mr_shares for x in net_income]
     eps_adj = [x/mr_shares for x in net_income_adj]
     dividends = [x/mr_shares for x in dividends]
 
-    # WC = inventory + receivables + other assets - payables - due to affiliates - due to related
-    l = {}
-    for i in ["inventory","receivables","other_assets","account_payable","due_to_affiliates","due_to_related_parties"]:
+    # Compute Working Capital as inventory + receivables + other assets - payables - due to affiliates - due to related
+    wc = {}
+    for i in ["inventory", "receivables", "other_assets", "account_payable", "due_to_affiliates", "due_to_related_parties"]:
         val = get_selected_years(data, i, initial_year-1, final_year)
-        l[i] = val
-
-    df = pd.DataFrame(l)
+        wc[i] = val
+    df = pd.DataFrame(wc)
     df["wc"] = df["inventory"] + df["receivables"] + df["other_assets"] - df["account_payable"] \
                - df["due_to_affiliates"] - df["due_to_related_parties"]
     df["delta_wc"] = df["wc"].diff(1)
     df = df.dropna()
-
     working_capital = df["wc"].to_list()
     delta_wc = df["delta_wc"].to_list()
 
-    ttm_eps = ttm_net_income / mr_shares
-    ttm_eps_adj = ttm_net_income_adj / mr_shares
-
-    print(working_capital, "=>", delta_wc)
-    print(capex, "=>", capex_adj)
-    print(depreciation_adj)
-
+    # Compute reinvestments
     reinvestment = []
     for i in range(len(capex)):
         reinvestment.append(capex_adj[i] + delta_wc[i] - depreciation_adj[i])
 
+    # Compute equity market
     equity_mkt = mr_shares * price_per_share
     if fx_rate is not None:
         equity_mkt /= fx_rate
 
+    # Compute debt market
     debt_mkt = ttm_interest_expense_adj * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt_adj / (
                 1 + cost_of_debt) ** 6
 
+    # Get company industry data
     target_sales_capital, industry_payout, pbv, unlevered_beta, target_operating_margin, target_debt_equity = \
         get_industry_data(industry, region, geo_segments_df, revenue, ebit_adj, revenue_delta, reinvestment,
                           equity_mkt, debt_mkt, equity_bv_adj, debt_bv_adj, mr_equity_adj, mr_debt_adj)
 
+    # Retrieve minority interest
     mr_original_min_interest = data["mr_minority_interest"]["value"] / 1000
     mr_minority_interest = mr_original_min_interest * pbv
 
-    # print("PBV", pbv)
-    # print(mr_minority_interest)
-
+    # retrieve tax benefits
     mr_tax_benefits = data["mr_tax_benefits"]["value"] / 1000
     mr_sbc = data["mr_sbc"]["value"] / 1000
 
@@ -2231,28 +2226,34 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("mr_sbc", mr_sbc)
         print("\n\n")
 
+    # Compute get_growth_ttm
     roc_last, reinvestment_last, growth_last, roe_last, reinvestment_eps_last, growth_eps_last = \
         get_growth_ttm(ttm_ebit_after_tax, ttm_net_income_adj, mr_equity_adj, mr_debt_adj, mr_cash_and_securities,
                        reinvestment, ttm_dividends, industry_payout)
 
+    # Get ROE and ROC
     roe, roc = get_roe_roc(equity_bv_adj, debt_bv_adj, cash_and_securities, ebit_after_tax, net_income_adj)
 
+    # Compute Target info
     cagr, target_levered_beta, target_cost_of_equity, target_cost_of_debt, target_cost_of_capital = \
         get_target_info(revenue, ttm_revenue, country_default_spread, tax_rate, final_erp, riskfree,
                         unlevered_beta, damodaran_bond_spread, company_default_spread, target_debt_equity)
-
+    # Normalize info
     revenue_5y, ebit_5y, operating_margin_5y, sales_capital_5y, roc_5y, reinvestment_5y, growth_5y, \
     net_income_5y, roe_5y, reinvestment_eps_5y, growth_eps_5y = \
         get_normalized_info(revenue, ebit_adj, revenue_delta, reinvestment, target_sales_capital,
                         ebit_after_tax, industry_payout, cagr, net_income_adj, roe, dividends, eps_adj, roc)
 
+    # Get dividends info
     eps_5y, payout_5y = get_dividends_info(eps_adj, dividends)
 
+    # Get final info
     survival_prob, debt_equity, \
     levered_beta, cost_of_equity, equity_weight, debt_weight, cost_of_capital = \
         get_final_info(riskfree, cost_of_debt, equity_mkt, debt_mkt, unlevered_beta,
                    tax_rate, final_erp, company_default_spread)
 
+    # Select final data
     mr_receivables = data["mr_receivables"]["value"] / 1000
     mr_inventory = data["mr_inventory"]["value"] / 1000
     mr_other_current_assets = data["mr_other_assets"]["value"] / 1000
@@ -2261,6 +2262,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     mr_equity_investments = data["mr_equity_investments"]["value"] / 1000
     mr_total_liabilities = data["mr_liabilities"]["value"] / 1000
 
+    # Compute liquidation value
     try:
         liquidation_value = calculate_liquidation_value(mr_cash, mr_receivables, mr_inventory, mr_securities,
                                                         mr_other_current_assets, mr_property,
@@ -2332,7 +2334,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("target_cost_of_capital", round(target_cost_of_capital,4))
         print("\n\n")
 
-
+    # Perform valuations
     stock_value_div_ttm_fixed = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
@@ -2407,6 +2409,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
                                                           target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
                                                           liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
 
+    # Aggregate valuation
     fcff_values_list = [stock_value_fcff_ttm_fixed, stock_value_fcff_norm_fixed, stock_value_fcff_ttm_ttm,
                        stock_value_fcff_norm_norm]
     fcff_recession_values_list = [stock_value_fcff_ttm_fixed_recession, stock_value_fcff_norm_fixed_recession,
@@ -2416,6 +2419,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     div_recession_values_list = [stock_value_div_ttm_fixed_recession, stock_value_div_norm_fixed_recession,
                                              stock_value_div_ttm_ttm_recession, stock_value_div_norm_norm_recession]
 
+    # Summarize valuations
     fcff_value = summary_valuation(fcff_values_list)
     fcff_recession_value = summary_valuation(fcff_recession_values_list)
     ev_fcff = fcff_value * (1 - recession_probability) + fcff_recession_value * recession_probability
@@ -2423,17 +2427,19 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     div_recession_value = summary_valuation(div_recession_values_list)
     ev_dividends = div_value * (1 - recession_probability) + div_recession_value * recession_probability
 
+    # Compute liquidation per share
     liquidation_per_share = liquidation_value / mr_shares
-
     if fx_rate is not None:
         fcff_value *= fx_rate
         div_value *= fx_rate
         liquidation_per_share *= fx_rate
 
+    # Compute valuation delta
     fcff_delta = price_per_share / ev_fcff - 1 if fcff_value > 0 else 10
     div_delta = price_per_share / ev_dividends - 1 if div_value > 0 else 10
     liquidation_delta = price_per_share / liquidation_per_share - 1 if liquidation_per_share > 0 else 10
 
+    # Compute company size
     market_cap_USD = equity_mkt * fx_rate_financial_USD
     if market_cap_USD < 50 * 10 ** 3:
         company_size = "Nano"
@@ -2448,12 +2454,17 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     else:
         company_size = "Mega"
 
+    # Compute company complexity
     complexity = company_complexity(doc, industry, company_size)
+    # Compute company share diluition
     dilution = company_share_diluition(shares)
-
+    # Compute inventory
     inventory = get_selected_years(data, "inventory", initial_year-1, final_year)
+    # Compute receivables
     receivables = get_selected_years(data, "receivables", initial_year-1, final_year)
+    # Compute company type
     company_type = get_company_type(revenue_growth, mr_debt_adj, equity_mkt, liquidation_value, operating_margin_5y, industry)
+    # Retrieve auditor
     auditor = find_auditor(doc)
 
     if debug:
@@ -2469,6 +2480,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("Auditor", auditor)
         print()
 
+    # Compute status
     status = get_status(fcff_delta, div_delta, liquidation_delta, country, region, company_size, company_type, dilution, complexity,
                         revenue, receivables, inventory, debug)
 
@@ -2492,6 +2504,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("Status", status)
 
 
+    # Add qualitative analysis
     if qualitative and doc is not None:
         recent_docs = get_recent_docs(cik, doc["filing_date"])
         for d in recent_docs:
@@ -2518,7 +2531,6 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
                     print()
 
             print("\n")
-
 
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
 

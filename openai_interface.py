@@ -67,8 +67,8 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo"):
 def compute_cost(tokens, model="gpt-3.5-turbo"):
     """
     Compute API cost from number of tokens
-    :param tokens:
-    :param model:
+    :param tokens: the number of token
+    :param model: the model name
     :return: cost in USD
     """
     if model == "gpt-3.5-turbo":
@@ -114,39 +114,57 @@ def get_messages(company_name, ticker, exchange, form, filing_date, section_titl
     return messages
 
 
-def create_summary(section_text, model, chain_type="map_reduce", verbose=False):
+def create_summary(section_text, model, chain_type, verbose):
+    """
+    Call OpenAI model with langchain library using ChatOpenAI.
+    then call langchain.load_summarize_chain with the selected model and the chain_type
+    :param section_text: text to be summarized
+    :param model: language model
+    :param chain_type: chain type for langchain.load_summarize_chain
+    :param verbose: print langchain process
+    :return: the model response, and the number of total tokens it took.
+    """
+    # load langchain language model
     llm = ChatOpenAI(model_name=model, openai_api_key=parser.get("open_ai", "api_key"))
+
+    # prepare section_text string with a custom string loader to be ready for load_summarize_chain
     string_loader = UnstructuredStringLoader(section_text)
+
+    # split the string in multiple chunks
     docs = split_doc_in_chunks(string_loader.load())
-    # chain = load_summarize_chain(llm, chain_type="refine", verbose=verbose)
+
+    # call model with the chain_type specified
     chain = load_summarize_chain(llm, chain_type=chain_type, verbose=verbose)
 
+    # retrieve model response
     with get_openai_callback() as cb:
         res = chain.run(docs)
 
     return res, cb.total_tokens
 
 
-def check_input_tokens(input_tokens, model):
-    # TODO decide an appropriate way to check input_tokens length
-    return input_tokens > MODEL_MAX_TOKENS[model] - 500
-
-
 def summarize_section(section_text, model="gpt-3.5-turbo", chain_type="map_reduce", verbose=False):
     """
     Create a summary for a document section.
     Output is a json {"data":["info1", "info2", ..., "infoN"]}
-    :param company: company information (name, ticker, exchange), to give additional context to the model
-    :param form: form type, to give additional context to the model
-    :param filing_date: to give additional context to the model
-    :param section_title: to give additional context to the model
-    :param section_text: text input for the model
-    :return: summary in json with a list of brief information points
+    :param section_text: text input to be summarized
+    :param model:the OpenAI model to use, default is gpt-3.5-turbo
+    :param chain_type: the type of chain to use for summarization, default is "map_reduce",
+     possible other values are "stuff" and "refine"
+    :param verbose: passed to langchain to print details about the chain process
+    :return: bullet points of the summary as an array of strings and the cost of the request
     """
-
+    # call model to create the summary
     summary, tokens = create_summary(section_text, model, chain_type, verbose)
 
+    # split summary in bullet points using "." as separator
     bullets = [x.strip() for x in summary.split(". ")]
+
+    # compute cost based on tokens of the response and the used model
     cost = compute_cost(tokens, model=model)
 
     return bullets, cost
+
+def check_input_tokens(input_tokens, model):
+    # TODO decide an appropriate way to check input_tokens length
+    return input_tokens > MODEL_MAX_TOKENS[model] - 500

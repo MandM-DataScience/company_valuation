@@ -124,14 +124,24 @@ default_8k_sections = {
 
 
 def string_similarity_percentage(string1, string2):
+    """
+    Compute the leveshtein distance between the two strings and return the percentage simialrity.
+    :param string1:
+    :param string2:
+    :return: a float representing the percentage of similarity
+    """
     distance = Levenshtein.distance(string1.replace(" ", ""), string2.replace(" ", ""))
     max_length = max(len(string1), len(string2))
     similarity_percentage = (1 - (distance / max_length)) * 100
-    # print(f"{string1} --> SIM: {similarity_percentage}")
     return similarity_percentage
 
 
 def clean_section_title(title):
+    """
+    Clean the title string removing special words and punctuation that makes harder to recognize.
+    :param title: a string
+    :return: a cleaned string, lowercase
+    """
     # lower case
     title = title.lower()
     # remove special html characters
@@ -146,11 +156,16 @@ def clean_section_title(title):
         title = title.replace(f"f-{idx}", "")
     # remove parentesis and strip
     title = re.sub(r'\([^)]*\)', '', title).strip(string.punctuation + string.whitespace)
-
     return title
 
 
 def is_title_valid(text):
+    """
+    Check if title is valid, meaning;
+    it does not starts with key words like: item, part, signature, page or is digit and has less than 2 chars
+    :param text: a string representing the title
+    :return: True if all conditions are satisfied else False
+    """
     valid = not (
             text.startswith("item") or
             text.startswith("part") or
@@ -158,11 +173,6 @@ def is_title_valid(text):
             text.startswith("page") or
             text.isdigit() or
             len(text) <= 2)
-    # print(f"\n ############################ '{text}' == {valid}")
-    # print(f"start with item {text.startswith('item ')}")
-    # print(f"start with part {text.startswith('part ')}")
-    # print(f"is digit {text.isdigit()}")
-    # print(f"is empty {len(text) <= 2}")
     return valid
 
 
@@ -277,16 +287,19 @@ def find_possible_axis():
 
 
 def identify_table_of_contents(soup, list_items):
-
+    """
+    Given a soup object and a list of item, this method look for a table of contents.
+    :param soup: soup object of the document
+    :param list_items: an array of strings related to sections titles.
+    :return: the table of contents PageElement object or None if not found.
+    """
     if list_items is None:
         return None
-
     max_table = 0
     chosen_table = None
     tables = soup.body.findAll("table")
     for t in tables:
         count = 0
-
         for s in list_items:
             r = t.find(string=re.compile(f'{s}', re.IGNORECASE))
             if r is not None:
@@ -302,10 +315,10 @@ def identify_table_of_contents(soup, list_items):
 
 def get_sections_using_hrefs(soup, table_of_contents):
     """
-    Scan the chosen_table aka TABLE of CONTENTS and identify all hrefs.
-    With this, the method create a dictionary of sections by finding tag elements referenced inside soup with the specific hrefs
-    Retrieve sections in html text. A section has a title string and start tag element.
-    :param soup:
+    Scan the table_of_contents and identify all hrefs, if present.
+    The method create a dictionary of sections by finding tag elements referenced inside soup with the specific hrefs.
+    :param soup: soup object of the document.
+    :param table_of_contents:
     :return: a dictionary with the following structure:
         {1:
             {
@@ -322,14 +335,10 @@ def get_sections_using_hrefs(soup, table_of_contents):
     :param soup:
     :return: section dictionary
     """
-    # print("WRITE to text")
-    # with open("text.txt", "w", encoding="utf-8") as f:
-    #     f.write(soup.body.get_text(separator=' '))
     all_elements = soup.find_all()
     hrefs = {}
     sections = {}
     for tr in table_of_contents.findAll("tr"):
-
         try:
             aa = tr.find_all("a")
             tr_hrefs = [a['href'][1:] for a in aa]
@@ -374,6 +383,14 @@ def get_sections_using_hrefs(soup, table_of_contents):
 
 
 def select_best_match(string_to_match, matches, start_index):
+    """
+    Identifies the best match, in terms of similarity distance between a string_to_match and a list of matches.
+    start_index is used to avoid cases where the string_to_match is matched with the first occurence in matches.
+    :param string_to_match: a string
+    :param matches: a list of regular expresion matches
+    :param start_index: a integer representing the index to start from
+    :return: a regualr expression match with highest simialrity
+    """
     match = None
 
     if start_index == 0:
@@ -396,11 +413,12 @@ def select_best_match(string_to_match, matches, start_index):
 
 def get_sections_using_strings(soup, table_of_contents, default_sections):
     """
-        Scan the chosen_table aka TABLE of CONTENTS and identify all text.
-
+        Scan the table_of_contents and identify possible section text using strings that match default_sections.
         Retrieve sections strings in soup.body.text.
-        :param soup:
-        :return: a dictionary with the following structure:
+        :param soup: the soup object
+        :param table_of_contents: a PageElement from soup that represent the table of contents
+        :param default_sections: a dictionary that contains prefilled data about default sections that could be found in the document
+        :return: a dictionary with the following structure, representing the sections:
             {1:
                 {
                     'start_index': the start index of the section inside soup.body.text
@@ -411,14 +429,14 @@ def get_sections_using_strings(soup, table_of_contents, default_sections):
             ...
             }
             Section are ordered based on chid['idx'] value
-        :param soup:
-        :return: section dictionary
         """
 
+    # Clean soup.body.text removing consecutive \n and spaces
     body_text = unidecode(soup.body.get_text(separator=" "))
     body_text = re.sub('\n', ' ', body_text)
     body_text = re.sub(' +', ' ', body_text)
 
+    # If there is a table_of_contents look for items strings a check for their validity
     sections = {}
     if table_of_contents:
         num_section = 1
@@ -440,25 +458,19 @@ def get_sections_using_strings(soup, table_of_contents, default_sections):
                     sections[num_section] = section
                     num_section += 1
 
+    # Different behaviour if there is a table_of_contents and sections is already populated.
     if len(sections) == 0:
-        print(f"{bcolors.OKCYAN}"
-              f'NO TABLE OF CONTENTS USABLE'
-              f"{bcolors.ENDC}")
+        # Here we didn't find any usable table_of_contents sections, then we use a prefilled default_sections dictionary
         sections = copy.deepcopy(default_sections)
         start_index = 1
-
     else:
-        print(f"{bcolors.OKCYAN}"
-              f'TABLE OF CONTENTS WITHOUT HREFS'
-              f"{bcolors.ENDC}")
+        # Here we skip first occurrence in text since it also present in table_of_contents
         start_index = 0
 
-    # with open("text.txt", "w", encoding="utf-8") as f:
-    #     f.write(body_text)
-
+    # Loop through all sections to identify a possible item and title for a section.
+    # If multiple values are found we select best match based on string similarity.
     for si in sections:
         s = sections[si]
-        # print(s)
         if 'item' in s:
             match = None
             if isinstance(s['title'], list):
@@ -474,7 +486,6 @@ def get_sections_using_strings(soup, table_of_contents, default_sections):
 
             if match is None:
                 matches = list(re.finditer(fr"{s['item']}", body_text, re.IGNORECASE + re.DOTALL))
-                # print(matches)
                 if matches:
                     match = select_best_match(f"{s['item']}", matches, start_index)
 
@@ -482,19 +493,15 @@ def get_sections_using_strings(soup, table_of_contents, default_sections):
                 s['title'] = match.group()
                 s["start_index"] = match.start()
                 start_index = match.start()
-                # print(s)
             else:
-                print(f"{bcolors.FAIL}"
-                      f"FAILED TO FIND MATCH for {s}"
-                      f"{bcolors.ENDC}")
                 s['remove'] = True
-        # input("NEXT")
 
     sections_temp = {}
     for si in sections:
         if "remove" not in sections[si]:
             sections_temp[si] = sections[si]
 
+    # Eventually we populate each section in the dictionary with its text taken from body_text
     temp_s = sorted(sections_temp.items(), key=lambda x: x[1]["start_index"])
     sections = {}
     last_section = 0
@@ -504,8 +511,6 @@ def get_sections_using_strings(soup, table_of_contents, default_sections):
             sections[i]["end_index"] = sections[i + 1]["start_index"]
             sections[i]["text"] = body_text[sections[i]["start_index"]:sections[i]["end_index"]]
         last_section = i + 1
-
-    # GET section text
     if last_section > 0:
         sections[last_section]["end_index"] = -1
         sections[last_section]["text"] = body_text[sections[last_section]["start_index"]:sections[last_section]["end_index"]]
@@ -514,8 +519,12 @@ def get_sections_using_strings(soup, table_of_contents, default_sections):
 
 
 def get_sections_text_with_hrefs(soup, sections):
-    # for s in sections:
-    #     print(sections[s]["title"])
+    """
+    This method try to retrieve text from soup object related to a document and its sections
+    :param soup: a soup object
+    :param sections: a dictionary containing data about sections
+    :return:
+    """
     next_section = 1
     current_section = None
     text = ""
@@ -523,15 +532,12 @@ def get_sections_text_with_hrefs(soup, sections):
     for el in soup.body.descendants:
         if next_section in sections and el == sections[next_section]['start_el']:
             if current_section is not None:
-                # print(f"END {current_section} | {sections[current_section]['title']}")
                 sections[current_section]["text"] = text
                 text = ""
                 last_was_new_line = False
-                # input("NEXT SECTION")
 
             current_section = next_section
             next_section += 1
-            # print(f"START {current_section} | {sections[current_section]['title']}")
 
         if current_section is not None and isinstance(el, NavigableString):
             if last_was_new_line and el.text == "\n":
@@ -557,23 +563,13 @@ def get_sections_text_with_hrefs(soup, sections):
     return sections
 
 
-def parse_document(doc, form):
-
-    if form == "10-K":
-        include_forms = ["10-K", "10-K/A"]
-        list_items = list_10k_items
-        default_sections = default_10k_sections
-    elif form == "10-Q":
-        include_forms = ["10-Q"]
-        list_items = list_10q_items
-        default_sections = default_10q_sections
-    elif form == "8-K":
-        include_forms = ["8-K"]
-        list_items = None
-        default_sections = default_8k_sections
-    else:
-        print(f"return because form_type {form} is not valid")
-        return
+def parse_document(doc):
+    """
+    Take a document, SEC filing, parse the content and retrieve the sections.
+    Save the result on mongoDB under parsed_documents collection.
+    :param doc: document from "documents" collection of mongoDB
+    :return:
+    """
 
     url = doc["_id"]
     form_type = doc["form_type"]
@@ -582,8 +578,25 @@ def parse_document(doc, form):
     cik = doc["cik"]
     html = doc["html"]
 
+    # Supported form type are 10-K, 10-K/A, 10-Q, 10-Q/A, 8-K
+    if form_type in ["10-K", "10-K/A"]:
+        include_forms = ["10-K", "10-K/A"]
+        list_items = list_10k_items
+        default_sections = default_10k_sections
+    elif form_type == "10-Q":
+        include_forms = ["10-Q"]
+        list_items = list_10q_items
+        default_sections = default_10q_sections
+    elif form_type == "8-K":
+        include_forms = ["8-K"]
+        list_items = None
+        default_sections = default_8k_sections
+    else:
+        print(f"return because form_type {form_type} is not valid")
+        return
+
     if form_type not in include_forms:
-        print(f"return because form_type != {form}")
+        print(f"return because form_type != {form_type}")
         return
 
     company_info = company_from_cik(cik)
@@ -610,12 +623,6 @@ def parse_document(doc, form):
     if len(sections) == 0:
         sections = get_sections_using_strings(soup, table_of_contents, default_sections)
 
-    for s in sections:
-        if 'text' not in sections[s]:
-            print(f"{bcolors.FAIL}"
-                  f'{url} - {form_type} with NO TEXT'
-                  f"{bcolors.ENDC}")
-
     result = {"_id": url, "cik": cik, "form_type":form_type, "filing_date": filing_date, "sections":{}}
 
     for s in sections:
@@ -632,9 +639,6 @@ def parse_document(doc, form):
         traceback.print_exc()
         print(result.keys())
         print(result["sections"].keys())
-
-
-    # business_section = find_business_section(sections)
 
 
 def find_auditor(doc):

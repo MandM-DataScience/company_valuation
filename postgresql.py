@@ -280,7 +280,7 @@ def get_df_from_table(tablename, where=";", most_recent=False):
 
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(f'''SELECT * FROM {tablename} {where}''')
+    cur.execute(f"""SELECT * FROM {tablename} {where}""")
     data = cur.fetchall()
     cols = []
     for elt in cur.description:
