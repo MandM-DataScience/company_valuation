@@ -357,6 +357,7 @@ def get_sections_using_hrefs(soup, table_of_contents):
                         if h_tag:
                             hrefs[tr_href] = {
                                 'start_el': h_tag,
+                                "link": tr_href,
                                 'idx': all_elements.index(h_tag),
                                 'title': None,
                                 'title_candidates': set([text])}
@@ -631,7 +632,8 @@ def parse_document(doc):
             text = section['text']
             text = re.sub('\n', ' ', text)
             text = re.sub(' +', ' ', text)
-            result["sections"][section["title"]] = text
+
+            result["sections"][section["title"]] = {"text":text, "link":section["link"] if "link" in section else None}
 
     try:
         mongodb.upsert_document("parsed_documents", result)

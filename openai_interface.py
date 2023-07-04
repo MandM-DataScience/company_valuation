@@ -86,7 +86,6 @@ def get_text_tokens(value, model="gpt-3.5-turbo"):
 
 
 def get_messages(company_name, ticker, exchange, form, filing_date, section_title, section_text):
-    # TODO Further refine prompt by trial and error on multiple filings and multiple companies
     prompt = f"I will give you some information about the company, the form I am analysing and " \
              f"then a text section of that form. All of this delimited by ^^^. " \
              f"Summarize the section keeping it as short as possible, without leaving out " \
@@ -141,7 +140,6 @@ def create_summary(section_text, model, chain_type, verbose):
         res = chain.run(docs)
 
     return res, cb.total_tokens
-
 
 def summarize_section(section_text, model="gpt-3.5-turbo", chain_type="map_reduce", verbose=False):
     """

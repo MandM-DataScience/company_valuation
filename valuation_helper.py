@@ -1213,7 +1213,8 @@ GROWTH_NORM = "GROWTH_NORM"
 
 def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_5y, riskfree,
                         industry_payout, cost_of_equity, target_cost_of_equity,
-                        growth_eps_last, eps_5y, payout_5y, ttm_eps_adj, reinvestment_eps_last, fx_rate, debug=True, recession=False):
+                        growth_eps_last, eps_5y, payout_5y, ttm_eps_adj, reinvestment_eps_last, fx_rate, debug=True,
+                        recession=False, dict_values_for_bi=None):
 
     final_growth = riskfree
 
@@ -1310,6 +1311,14 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
     else:
         stock_value = stock_value_price_curr
 
+    if dict_values_for_bi is not None:
+        dict_values_for_bi[f"{earnings_type} + {growth_type} + recession:{recession}"] = {
+            "eps": eps_history,
+            "dividends": dps_history,
+            "cost_of_equity": cost_of_equity_history,
+            "pv_of_dividends": present_value + [terminal_pv]
+        }
+
     if debug:
 
         for i in [growth_history, eps_history, payout_history, dps_history, cost_of_equity_history, cumulative_coe, present_value]:
@@ -1335,7 +1344,8 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
 def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_ebit_adj, target_operating_margin, tax_benefits,
                    tax_rate, sales_capital_5y, target_sales_capital, debt_equity, target_debt_equity, unlevered_beta,
                    final_erp, cost_of_debt, target_cost_of_debt, mr_cash, mr_securities, debt_mkt, minority_interest, survival_prob,
-                   share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=True, recession=False):
+                   share_issued, ko_proceeds, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=True,
+                   recession=False, dict_values_for_bi=None):
 
     # earnings ttm + growth fixed
 
@@ -1478,6 +1488,17 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_
         stock_value = stock_value_price_curr * fx_rate
     else:
         stock_value = stock_value_price_curr
+
+    if dict_values_for_bi is not None:
+        dict_values_for_bi[f"{earnings_type} + {growth_type} + recession:{recession}"].update({
+            "revenue": revenue_history,
+            "ebit": ebit_history,
+            "ebit_after_tax": ebit_after_tax_history,
+            "reinvestment": reinvestment_history,
+            "FCFF": fcff_history,
+            "cost_of_capital": cost_of_capital_history,
+            "pv_of_FCFF": present_value_history + [terminal_value_pv]
+        })
 
     if debug:
 

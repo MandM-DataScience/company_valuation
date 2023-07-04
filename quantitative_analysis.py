@@ -1,9 +1,11 @@
+import datetime
 import math
 import traceback
 
 import pandas as pd
 import numpy as np
 import mongodb
+from db.utils.db_manager import insert_df_into_table
 from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK, cik_from_ticker, download_financial_data
 from postgresql import get_df_from_table, get_generic_info
 from qualitative_analysis import get_last_document, extract_segments, geography_distribution, get_recent_docs, \
@@ -1887,7 +1889,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     # Check if we have financial data
     # Check if we have submissions (at least the last 10k)
     try:
-        # TODO download updated financial info for cik
+        download_financial_data(cik)
         data = extract_company_financial_information(cik)
     except NoSharesException:
         print(cik, "no shares")
@@ -2334,80 +2336,85 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("target_cost_of_capital", round(target_cost_of_capital,4))
         print("\n\n")
 
+
     # Perform valuations
+
+
+    dict_values_for_bi = {}
+
     stock_value_div_ttm_fixed = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_fixed = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                      riskfree, industry_payout, cost_of_equity,
                                                      target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_ttm_ttm = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                   industry_payout, cost_of_equity, target_cost_of_equity,
                                                   growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_norm = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                     industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_ttm_fixed_recession = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_fixed_recession = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                      riskfree, industry_payout, cost_of_equity,
                                                      target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_ttm_ttm_recession = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                   industry_payout, cost_of_equity, target_cost_of_equity,
                                                   growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_norm_recession = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                     industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True)
+                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
 
     stock_value_fcff_ttm_fixed = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                 target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                 debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                 target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_norm_fixed = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                  target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                  debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                  target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                 liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+                                                 liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_ttm_ttm = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                               target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                               debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                               target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                              liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+                                              liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_norm_norm = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                 target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                 debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                 target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug)
+                                                liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_ttm_fixed_recession = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                           target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                           debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                           target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_norm_fixed_recession = fcff_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                            target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                            debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                            target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                           liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+                                                           liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_ttm_ttm_recession = fcff_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                         target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                         debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                         target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                        liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+                                                        liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_fcff_norm_norm_recession = fcff_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                           target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
                                                           debt_equity, target_debt_equity, unlevered_beta, final_erp, cost_of_debt,
                                                           target_cost_of_debt, mr_cash, mr_securities, debt_mkt, mr_minority_interest, survival_prob, mr_shares,
-                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True)
+                                                          liquidation_value, growth_last, growth_5y, revenue_5y, ebit_5y, fx_rate, mr_property, mr_sbc, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
 
     # Aggregate valuation
     fcff_values_list = [stock_value_fcff_ttm_fixed, stock_value_fcff_norm_fixed, stock_value_fcff_ttm_ttm,
@@ -2532,7 +2539,85 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
 
             print("\n")
 
-    return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, status
+    #### DFs for BI ####
+    company_info_df = pd.DataFrame([
+        {
+            "ticker": ticker,
+            "company_name": company_name,
+            "country": country,
+            "region": region,
+            "industry": industry,
+            "financial_currency": db_financial_curr,
+            "quote_currency": db_curr,
+            "price_per_share": price_per_share,
+            "number_of_shares": mr_shares * 1000,
+            "market_cap": equity_mkt * 1000,
+            "options_value": mr_sbc * 1000,
+            "equity": mr_equity * 1000,
+            "equity_adj": mr_equity_adj * 1000,
+            "cash": mr_cash * 1000,
+            "cash_and_securities": mr_cash_and_securities * 1000,
+            "debt": mr_debt * 1000,
+            "debt_adj": mr_debt_adj * 1000,
+            "minority_interest": mr_original_min_interest * 1000,
+            "minority_interest_adj": mr_minority_interest * 1000,
+            "survival_rate": survival_prob * 1000,
+            "created_at": datetime.datetime.now().date()
+        }
+    ])
+
+    financial_data = []
+    for i in range(years):
+        financial_data.append({
+            "ticker": ticker,
+            "created_at": datetime.datetime.now().date(),
+            "scenario": "actual",
+            "year": initial_year + i,
+            "revenue": revenue[i] * 1000,
+            "ebit": ebit[i] * 1000,
+            "ebit_adj": ebit_adj[i] * 1000,
+            "ebit_after_tax": ebit_after_tax[i] * 1000,
+            "reinvestment": reinvestment[i] * 1000,
+            "fcff": (ebit_after_tax[i] - reinvestment[i]) * 1000,
+            "eps": eps[i],
+            "eps_adj": eps_adj[i],
+            "dividends_per_share": dividends[i],
+            "dividends": dividends[i] * mr_shares * 1000
+        })
+    for scenario in dict_values_for_bi:
+        scenario_values = dict_values_for_bi[scenario]
+        for i in range(11):
+            financial_data.append({
+            "ticker": ticker,
+            "created_at": datetime.datetime.now().date(),
+            "scenario": scenario,
+            "year": final_year + i + 1,
+            "revenue": scenario_values["revenue"][i] * 1000,
+            "ebit": scenario_values["ebit"][i] * 1000,
+            "ebit_after_tax": scenario_values["ebit_after_tax"][i] * 1000,
+            "reinvestment": scenario_values["reinvestment"][i] * 1000,
+            "fcff": scenario_values["FCFF"][i] * 1000,
+            "cost_of_capital": scenario_values["cost_of_capital"][i],
+            "pv_of_fcff": scenario_values["pv_of_FCFF"][i] * 1000,
+            "eps": scenario_values["eps"][i],
+            "dividends_per_share": scenario_values["dividends"][i],
+            "dividends": scenario_values["dividends"][i] * mr_shares * 1000,
+            "cost_of_equity": scenario_values["cost_of_equity"][i],
+            "pv_of_dividends_per_share": scenario_values["pv_of_dividends"][i],
+        })
+    financial_data_df = pd.DataFrame(financial_data)
+
+    if geo_segments_df is None or geo_segments_df.empty:
+        geo_segments_df = pd.DataFrame([
+            {"value": 1,
+             "country": country,
+             "country_area": country,
+             "region": region
+             }
+        ])
+
+    return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, \
+           status, company_info_df, financial_data_df, geo_segments_df
 
 if __name__ == '__main__':
     cik = cik_from_ticker("BLDR")

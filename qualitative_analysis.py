@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 import mongodb
 from edgar_utils import company_from_cik, AAPL_CIK, download_all_cik_submissions, download_submissions_documents
 from openai_interface import summarize_section
-from postgresql import get_df_from_table, country_to_region
+from postgresql import get_df_from_table, country_to_region, area_to_repr_country
 
 
 def restructure_parsed_10k(doc):
@@ -19,15 +19,15 @@ def restructure_parsed_10k(doc):
     :return: a dictionary containing the parsed document sections titles and their text.
     """
     result = {
-        "business": "", # important
-        "risk": "",       # important
-        "unresolved": "",
-        "property": "",
-        # "MD&A": "",     # important
-        "legal": "",
-        "foreign": "",
-        # "notes": "",
-        "other": ""
+        "business": {"text":"", "links":[]}, # important
+        "risk": {"text":"", "links":[]},       # important
+        "unresolved": {"text":"", "links":[]},
+        "property": {"text":"", "links":[]},
+        # "MD&A": {"text":"", "links":[]},     # important
+        "legal": {"text":"", "links":[]},
+        "foreign": {"text":"", "links":[]},
+        # "notes": {"text":"", "links":[]},
+        "other": {"text":"", "links":[]}
     }
 
     for s in doc["sections"]:
@@ -54,18 +54,22 @@ def restructure_parsed_10k(doc):
             found = "risk"
 
         if found is not None:
-            result[found] += doc["sections"][s]
+            result[found]["text"] += doc["sections"][s]["text"]
+            result[found]["links"].append({
+                "title": s,
+                "link": doc["sections"][s]["link"] if "link" in doc["sections"][s] else None
+            })
 
     return result
 
 def restructure_parsed_10q(doc):
     result = {
-        "risk": "",  # important
-        "MD&A": "",  # important
-        "legal": "",
-        "other": "",
-        "equity": "",
-        "defaults": "",
+        "risk": {"text":"", "links":[]},  # important
+        "MD&A": {"text":"", "links":[]},  # important
+        "legal": {"text":"", "links":[]},
+        "other": {"text":"", "links":[]},
+        "equity": {"text":"", "links":[]},
+        "defaults": {"text":"", "links":[]},
     }
 
     for s in doc["sections"]:
@@ -85,7 +89,11 @@ def restructure_parsed_10q(doc):
             found = "defaults"
 
         if found is not None:
-            result[found] += doc["sections"][s]
+            result[found]["text"] += doc["sections"][s]["text"]
+            result[found]["links"].append({
+                "title": s,
+                "link": doc["sections"][s]["link"] if "link" in doc["sections"][s] else None
+            })
 
     return result
 
@@ -133,7 +141,12 @@ def sections_summary(doc, verbose=False):
         print(f"form_type {doc['form_type']} is not yet implemented")
         return
 
-    for section_title, section_text in new_doc.items():
+
+    for section_title, section in new_doc.items():
+
+        section_links = section["links"]
+        section_text = section["text"]
+
         start_time = time.time()
         if len(section_text) < 250:
             continue
@@ -162,7 +175,7 @@ def sections_summary(doc, verbose=False):
         print(f"{section_title} original_len: {original_len} use {model} w/ chain {chain_type}")
         summary, cost = summarize_section(section_text, model, chain_type, verbose)
 
-        result[section_title] = summary
+        result[section_title] = {"summary":summary, "links": section_links}
 
         summary_len = len(''.join(summary))
         reduction = 100 - round(summary_len / original_len * 100, 2)
@@ -254,7 +267,6 @@ def extract_segments(doc):
 
     return result
 
-
 def map_geographic_area(string):
     if "other" in string and ("region" in string or "countr" in string or "continent" in string):
         return "Global"
@@ -278,7 +290,6 @@ def map_geographic_area(string):
         return "Middle East"
     elif "northamerica" in string:
         return "North America"
-
 
 def geography_distribution(segments, ticker):
 
@@ -376,12 +387,14 @@ def geography_distribution(segments, ticker):
     df = df.drop("country_area", axis=1)
     df = df.rename(columns={"part_area":"country_area"})
     df["value"] = df["value"] * df["area_percent"]
+
     df["region"] = df["country_area"].apply(lambda x: country_to_region[x] if x in country_to_region else "Global")
+    df["country_representative"] = df["country_area"].apply(lambda x: area_to_repr_country[x] if x in area_to_repr_country else None)
+    df["country"] = df["country"].fillna(df["country_representative"])
 
     # print(df.to_markdown())
 
-    return df.drop(["segment","country","area", "area_percent"], axis=1)
-
+    return df.drop(["segment","country_representative","area", "area_percent"], axis=1)
 
 def try_geo_segments():
 
@@ -404,7 +417,6 @@ def try_geo_segments():
 
     # segments = extract_segments(url)
     # geography_distribution(segments, "hes")
-
 
 def get_last_document(cik, form_type):
 
