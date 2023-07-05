@@ -144,7 +144,7 @@ def sections_summary(doc, verbose=False):
 
     for section_title, section in new_doc.items():
 
-        section_links = section["links"]
+        section_links = section["links"] if "links" in section else None
         section_text = section["text"]
 
         start_time = time.time()
@@ -154,15 +154,15 @@ def sections_summary(doc, verbose=False):
         if section_title in ["business", "risk", "MD&A"]:
             chain_type = "refine"
 
-            if len(section_text) > 50000:
+            if len(section_text) > 25000:
                 model = "gpt-3.5-turbo-16k"
             else:
                 model = "gpt-3.5-turbo"
         else:
-            if len(section_text) < 50000:
+            if len(section_text) < 25000:
                 chain_type = "refine"
                 model = "gpt-3.5-turbo"
-            elif len(section_text) < 100000:
+            elif len(section_text) < 50000:
                 chain_type = "map_reduce"
                 model = "gpt-3.5-turbo"
             else:
