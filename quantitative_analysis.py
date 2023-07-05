@@ -2137,6 +2137,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     cash_and_securities = [sum(x) for x in zip(cash, securities)]
 
     # Consider EPS/dividends as with most recent number of shares (to account for splits and buybacks)
+    eps = [x / mr_shares for x in net_income]
     eps_adj = [x/mr_shares for x in net_income_adj]
     dividends = [x/mr_shares for x in dividends]
 
