@@ -2514,6 +2514,9 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
 
     # Add qualitative analysis
     if qualitative and doc is not None:
+
+        l = []
+
         recent_docs = get_recent_docs(cik, doc["filing_date"])
         for d in recent_docs:
 
@@ -2532,13 +2535,39 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
             summary_doc = mongodb.get_document("items_summary", d["_id"])
 
             for k, v in summary_doc.items():
-                if isinstance(v, list):
+                if isinstance(v, dict):
+
                     print(f"=== {k} ===")
-                    for el in v:
-                        print(el)
+
+                    for info in v["summary"]:
+
+                        print(info)
+
+                        if v["links"] is None:
+                            v["links"] = [{"title":"", "link":""}]
+
+                        for link in v["links"]:
+
+                            l.append({
+                                "ticker": ticker,
+                                "created_at": datetime.datetime.now().date(),
+                                "form_type": d["form_type"],
+                                "filing_date": d["filing_date"],
+                                "url": d["_id"],
+                                "section": k,
+                                "information": info,
+                                "section_link": link["link"],
+                                "section_link_title": link["title"]
+                            })
+
                     print()
 
             print("\n")
+
+        summary_df = pd.DataFrame(l)
+
+    else:
+        summary_df = None
 
     #### DFs for BI ####
     company_info_df = pd.DataFrame([
@@ -2619,7 +2648,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         ])
 
     return price_per_share, fcff_value, div_value, fcff_delta, div_delta, liquidation_per_share, liquidation_delta, \
-           status, company_info_df, financial_data_df, geo_segments_df
+           status, company_info_df, financial_data_df, geo_segments_df, summary_df
 
 if __name__ == '__main__':
     cik = cik_from_ticker("BLDR")
