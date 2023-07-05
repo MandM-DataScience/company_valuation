@@ -596,7 +596,7 @@ def debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread,
 
             debt_adj = sum(pv_leases)
             if last_year_leases > 0:
-                op_leases_depreciation = debt_adj / last_year_leases
+                op_leases_depreciation = (debt_adj + leases[0]) / (last_year_leases + 1)
             else:
                 op_leases_depreciation = 0
 
