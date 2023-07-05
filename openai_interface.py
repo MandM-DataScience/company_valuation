@@ -1,3 +1,4 @@
+import re
 from configparser import ConfigParser
 
 from langchain.callbacks import get_openai_callback
@@ -113,7 +114,7 @@ def get_messages(company_name, ticker, exchange, form, filing_date, section_titl
     return messages
 
 
-def create_summary(section_text, model, chain_type, verbose):
+def create_summary(section_text, model, chain_type="map_reduce", verbose=False):
     """
     Call OpenAI model with langchain library using ChatOpenAI.
     then call langchain.load_summarize_chain with the selected model and the chain_type
@@ -156,7 +157,7 @@ def summarize_section(section_text, model="gpt-3.5-turbo", chain_type="map_reduc
     summary, tokens = create_summary(section_text, model, chain_type, verbose)
 
     # split summary in bullet points using "." as separator
-    bullets = [x.strip() for x in summary.split(". ")]
+    bullets = [x.strip() for x in re.split(r'(?<!inc)(?<!Inc)\. ', summary)]
 
     # compute cost based on tokens of the response and the used model
     cost = compute_cost(tokens, model=model)
