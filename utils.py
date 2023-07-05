@@ -360,7 +360,7 @@ def get_sections_using_hrefs(soup, table_of_contents):
                                 "link": tr_href,
                                 'idx': all_elements.index(h_tag),
                                 'title': None,
-                                'title_candidates': set([text])}
+                                'title_candidates': {text}}
                     else:
                         hrefs[tr_href]['title_candidates'].add(text)
             else:

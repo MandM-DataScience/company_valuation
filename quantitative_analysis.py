@@ -1,12 +1,9 @@
 import datetime
-import math
 import traceback
 
 import pandas as pd
-import numpy as np
 import mongodb
-from db.utils.db_manager import insert_df_into_table
-from edgar_utils import ATKR_CIK, company_from_cik, AAPL_CIK, cik_from_ticker, download_financial_data
+from edgar_utils import company_from_cik, cik_from_ticker, download_financial_data
 from postgresql import get_df_from_table, get_generic_info
 from qualitative_analysis import get_last_document, extract_segments, geography_distribution, get_recent_docs, \
     sections_summary
@@ -74,7 +71,7 @@ def build_financial_df(doc, measure, unit="USD", tax="us-gaap"):
 def get_ttm_from_df(df):
     """
     Compute TTM (trailing twelve months) value from a DataFrame containing quarterly and annual values.
-    :param ttm_df: DataFrame containing quarterly and annual values
+    :param df: DataFrame containing quarterly and annual values
     :return: ttm value, year of last annual value in DataFrame
     """
 
@@ -152,8 +149,9 @@ def get_yearly_values_from_df(df, instant=False, quarter_of_annual_report=None, 
     :param df: DataFrame containing quarterly and annual values
     :param instant: bool that indicates if the measure is instantaneous (snapshot), if True it means the measure is a
     balance sheet measure, otherwise it's an income statement/cashflow statement measure (period instead of snapshot)
-    :param last_annual_report_date: in case of instant measure, we also need the last annual report date as we will
-    need it to discern the "final year" figures from the rest
+    :param quarter_of_annual_report: in case of instant measure, we also need the quarter when the annual report is
+    released
+    :param years_diff: used when the fiscal year ends in a different solar year
     :return: dict {
         "dates": [date1, date2, ..., dateN],
         "values": [val1, val2, ..., valN],
@@ -201,8 +199,11 @@ def get_values_from_measures(doc, measures, get_ttm=True, get_most_recent=True, 
     :param get_yearly: bool, whether to compute yearly values
     :param instant: bool, indicates if the measures are instantaneous (snapshot, balance sheet) or not (period,
     income statement / cashflow statement)
-    :param last_annual_report_date: date of last annual report, used for instant measures
+    :param quarter_of_annual_report: quarter of annual report, used for instant measures
+    :param years_diff: difference between fiscal year and solar year, used for instant measures
     :param debug: bool, print debug statements
+    :param unit: unit for build_financial_df
+    :param tax: taxonomy for build_financial_df
     :return: most recent value, ttm value, yearly values (0 or empty if not requested)
     """
 
@@ -593,14 +594,14 @@ def extract_income_statement(doc):
         _, ttm_ie_borrowings, _ = get_values_from_measures(doc, measures, get_most_recent=False, get_yearly=False,
                                                            debug=False)
 
-        if ttm_ie_borrowings == 0:
+        if ttm_ie_borrowings["value"] == 0:
 
             measures = ["InterestExpenseDebt",
                         "InterestExpenseDebtExcludingAmortization"]
             _, ttm_ie_debt, _ = get_values_from_measures(doc, measures, get_most_recent=False, get_yearly=False,
                                                                       debug=False)
 
-            if ttm_ie_debt == 0:
+            if ttm_ie_debt["value"] == 0:
 
                 measures = ["InterestExpenseLongTermDebt"]
                 _, ttm_ie_debt_lt, _ = get_values_from_measures(doc, measures, get_most_recent=False, get_yearly=False,
@@ -608,7 +609,8 @@ def extract_income_statement(doc):
                 measures = ["InterestExpenseShortTermBorrowings"]
                 _, ttm_ie_debt_st, _ = get_values_from_measures(doc, measures, get_most_recent=False, get_yearly=False,
                                                                 debug=False)
-                ttm_ie_debt = ttm_ie_debt_lt + ttm_ie_debt_st
+
+                merge_subsets_most_recent(ttm_ie_debt, [ttm_ie_debt_lt, ttm_ie_debt_st])
 
 
             measures = ["InterestExpenseDeposits"]
@@ -621,7 +623,8 @@ def extract_income_statement(doc):
             _, ttm_ie_related, _ = get_values_from_measures(doc, measures, get_most_recent=False, get_yearly=False,
                                                                             debug=False)
 
-            ttm_ie_borrowings = ttm_ie_debt + ttm_ie_deposits + ttm_ie_others + ttm_ie_related
+            ttm_ie_borrowings = merge_subsets_most_recent(ttm_ie_borrowings,
+                                                          [ttm_ie_debt, ttm_ie_deposits, ttm_ie_others, ttm_ie_related])
 
         ttm_interest_expenses = ttm_ie_borrowings
 
@@ -705,7 +708,8 @@ def extract_balance_sheet_current_assets(doc, quarter_of_annual_report, years_di
     - receivables
     - securities
     :param doc: company financial document
-    :param last_annual_report_date: date of last annual report
+    :param quarter_of_annual_report: quarter of annual report
+    :param years_diff: difference between fiscal year and solar year
     :return: dict with most recent and yearly measures
     """
 
@@ -970,7 +974,8 @@ def extract_balance_sheet_noncurrent_assets(doc, quarter_of_annual_report, years
     - investment property
     - tax benefits
     :param doc: company financial document
-    :param last_annual_report_date: date of last annual report
+    :param quarter_of_annual_report: quarter of annual report
+    :param years_diff: difference between fiscal year and solar year
     :return: dict with most recent measures
     """
 
@@ -1123,7 +1128,8 @@ def extract_balance_sheet_debt(doc, quarter_of_annual_report, years_diff):
     """
     Extract balance sheet DEBT measures (Current + Non-Current) from company financial document.
     :param doc: company financial document
-    :param last_annual_report_date: date of last annual report
+    :param quarter_of_annual_report: quarter of annual report
+    :param years_diff: difference between fiscal year and solar year
     :return: dict with most recent and yearly measures
     """
 
@@ -1335,7 +1341,8 @@ def extract_balance_sheet_liabilities(doc, quarter_of_annual_report, years_diff,
     """
     Extract balance sheet measures (Total Liabilities) from company financial document.
     :param doc: company financial document
-    :param last_annual_report_date: date of last annual report
+    :param quarter_of_annual_report: quarter of annual report
+    :param years_diff: difference between fiscal year and solar year
     :return: dict with most recent measures
     """
 
@@ -2526,7 +2533,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
             print("##############\n")
 
             if not mongodb.check_document_exists("parsed_documents", d["_id"]):
-                parse_document(d, d["form_type"])
+                parse_document(d)
 
             parsed_doc = mongodb.get_document("parsed_documents", d["_id"])
 
