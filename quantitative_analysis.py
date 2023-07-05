@@ -1902,7 +1902,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print(data)
         print()
 
-    # Look for company revenues
+    # Retrieve company revenues
     try:
         final_year = data["revenue"]["dates"][-1]
         initial_year = final_year - years + 1
@@ -1994,10 +1994,10 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     except:
         alpha_3_code = None
 
-    # Retrieve the risk free based on the company financial currency and the country statistics
+    # Retrieve the riskfree rate based on the company financial currency and the country statistics
     riskfree = currency_bond_yield(db_financial_curr, alpha_3_code, country_stats)
 
-    # Check if the riskfree
+    # Check if the riskfree rate exists
     if riskfree == -1:
         print(ticker, "no riskfree")
         return null_valuation(price_per_share)
@@ -2015,11 +2015,11 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print("erp", erp)
         print("\n\n")
 
-    # Retrive shares number
+    # Retrieve shares number
     mr_shares = data["mr_shares"]["value"] / 1000
     shares = get_selected_years(data, "shares", initial_year, final_year)
 
-    # Convert Currency to USD
+    # Convert Currency
     fx_rate = None
     if db_curr is None or db_curr.strip() == "":
         return null_valuation(price_per_share)
@@ -2032,7 +2032,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     if db_financial_curr != "USD":
         fx_rate_financial_USD = convert_currencies("USD", db_financial_curr)
 
-    # Select financial data and
+    # Retrieve financial data
     ttm_revenue = data["ttm_revenue"]["value"] / 1000
     ttm_ebit = data["ttm_ebit"]["value"] / 1000
     ttm_net_income = data["ttm_net_income"]["value"] / 1000
@@ -2066,11 +2066,11 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         except:
             revenue_growth.append(0)
 
-    # drop 1st element we don't need
+    # Drop 1st element we don't need
     revenue = revenue[1:]
     revenue_growth = revenue_growth[1:]
 
-    # Compute R&D
+    # Retrieve R&D
     try:
         r_and_d_amortization_years = r_and_d_amortization[industry]
     except:
@@ -2084,7 +2084,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     ebit_r_and_d_adj, tax_benefit, r_and_d_unamortized, r_and_d_amortization_cy = \
         capitalize_rd(r_and_d, r_and_d_amortization_years, tax_rate, years)
 
-    # Compute Adjusted values
+    # Compute R&D-adjusted values
     ttm_ebit_adj = ttm_ebit + ebit_r_and_d_adj[-1]
     ebit_adj = [sum(x) for x in zip(ebit, ebit_r_and_d_adj)]
     ttm_net_income_adj = ttm_net_income + ebit_r_and_d_adj[-1]
@@ -2096,7 +2096,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     ebit_after_tax = [sum(x) for x in zip([x * (1 - tax_rate) for x in ebit_adj], tax_benefit)]
     ttm_eps_adj = ttm_net_income_adj / mr_shares
 
-    # Select Operating Leases
+    # Retrieve Operating Leases
     leases = [
         data["mr_op_leases_expense"]["value"] / 1000,
         data["mr_op_leases_next_year"]["value"] / 1000,
@@ -2111,6 +2111,8 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         ebit_op_adj, int_exp_op_adj, debt_adj, tax_benefit_op, company_default_spread = \
             debtize_op_leases(ttm_interest_expense, ttm_ebit_adj, damodaran_bond_spread, riskfree, country_default_spread,
                           leases, last_year_leases, tax_rate, revenue_growth)
+
+        # Compute OperatingLeases-adjusted values
         ttm_ebit_adj += ebit_op_adj[-1]
         ttm_interest_expense_adj = ttm_interest_expense + int_exp_op_adj
         mr_debt_adj = mr_debt + debt_adj[-1]
@@ -2134,7 +2136,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     mr_cash_and_securities = mr_cash + mr_securities
     cash_and_securities = [sum(x) for x in zip(cash, securities)]
 
-    # consider EPS/dividends as with most recent number of shares (to account for splits and buybacks)
+    # Consider EPS/dividends as with most recent number of shares (to account for splits and buybacks)
     eps_adj = [x/mr_shares for x in net_income_adj]
     dividends = [x/mr_shares for x in dividends]
 
@@ -2156,12 +2158,12 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     for i in range(len(capex)):
         reinvestment.append(capex_adj[i] + delta_wc[i] - depreciation_adj[i])
 
-    # Compute equity market
+    # Compute equity market value (market cap)
     equity_mkt = mr_shares * price_per_share
     if fx_rate is not None:
         equity_mkt /= fx_rate
 
-    # Compute debt market
+    # Compute debt market value
     debt_mkt = ttm_interest_expense_adj * (1 - (1 + cost_of_debt) ** -6) / cost_of_debt + mr_debt_adj / (
                 1 + cost_of_debt) ** 6
 
@@ -2174,7 +2176,7 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     mr_original_min_interest = data["mr_minority_interest"]["value"] / 1000
     mr_minority_interest = mr_original_min_interest * pbv
 
-    # retrieve tax benefits
+    # Retrieve tax benefits and Share Based Compensation
     mr_tax_benefits = data["mr_tax_benefits"]["value"] / 1000
     mr_sbc = data["mr_sbc"]["value"] / 1000
 
@@ -2275,6 +2277,9 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
         print(traceback.format_exc())
         liquidation_value = 0
 
+    # Compute liquidation per share
+    liquidation_per_share = liquidation_value / mr_shares
+
     if debug:
         print("===== Growth =====\n")
         print("cagr", round(cagr,4))
@@ -2345,35 +2350,35 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     stock_value_div_ttm_fixed = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_fixed = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                      riskfree, industry_payout, cost_of_equity,
                                                      target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_ttm_ttm = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                   industry_payout, cost_of_equity, target_cost_of_equity,
                                                   growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_norm = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                     industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_ttm_fixed_recession = dividends_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                     riskfree, industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_fixed_recession = dividends_valuation(EARNINGS_NORM, GROWTH_FIXED, cagr, growth_eps_5y, growth_5y,
                                                      riskfree, industry_payout, cost_of_equity,
                                                      target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_ttm_ttm_recession = dividends_valuation(EARNINGS_TTM, GROWTH_TTM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                   industry_payout, cost_of_equity, target_cost_of_equity,
                                                   growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
     stock_value_div_norm_norm_recession = dividends_valuation(EARNINGS_NORM, GROWTH_NORM, cagr, growth_eps_5y, growth_5y, riskfree,
                                                     industry_payout, cost_of_equity,
                                                     target_cost_of_equity, growth_eps_last, eps_5y, payout_5y, ttm_eps_adj,
-                                                    reinvestment_eps_last, fx_rate, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
+                                                    reinvestment_eps_last, fx_rate, survival_prob, liquidation_per_share, debug=debug, recession=True, dict_values_for_bi=dict_values_for_bi)
 
     stock_value_fcff_ttm_fixed = fcff_valuation(EARNINGS_TTM, GROWTH_FIXED, cagr, riskfree, ttm_revenue, ttm_ebit_adj,
                                                 target_operating_margin, mr_tax_benefits, tax_rate, sales_capital_5y, target_sales_capital,
@@ -2434,8 +2439,6 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     div_recession_value = summary_valuation(div_recession_values_list)
     ev_dividends = div_value * (1 - recession_probability) + div_recession_value * recession_probability
 
-    # Compute liquidation per share
-    liquidation_per_share = liquidation_value / mr_shares
     if fx_rate is not None:
         fcff_value *= fx_rate
         div_value *= fx_rate
@@ -2465,11 +2468,9 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
     complexity = company_complexity(doc, industry, company_size)
     # Compute company share diluition
     dilution = company_share_diluition(shares)
-    # Compute inventory
+    # Retrieve inventory and account receivables
     inventory = get_selected_years(data, "inventory", initial_year-1, final_year)
-    # Compute receivables
     receivables = get_selected_years(data, "receivables", initial_year-1, final_year)
-    # Compute company type
     company_type = get_company_type(revenue_growth, mr_debt_adj, equity_mkt, liquidation_value, operating_margin_5y, industry)
     # Retrieve auditor
     auditor = find_auditor(doc)
@@ -2561,7 +2562,8 @@ def valuation(cik, years=5, recession_probability = 0.5, qualitative=False, debu
             "debt_adj": mr_debt_adj * 1000,
             "minority_interest": mr_original_min_interest * 1000,
             "minority_interest_adj": mr_minority_interest * 1000,
-            "survival_rate": survival_prob * 1000,
+            "survival_rate": survival_prob,
+            "liquidation_value": liquidation_value * 1000,
             "created_at": datetime.datetime.now().date()
         }
     ])

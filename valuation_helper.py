@@ -1213,8 +1213,8 @@ GROWTH_NORM = "GROWTH_NORM"
 
 def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_5y, riskfree,
                         industry_payout, cost_of_equity, target_cost_of_equity,
-                        growth_eps_last, eps_5y, payout_5y, ttm_eps_adj, reinvestment_eps_last, fx_rate, debug=True,
-                        recession=False, dict_values_for_bi=None):
+                        growth_eps_last, eps_5y, payout_5y, ttm_eps_adj, reinvestment_eps_last, fx_rate, survival_prob,
+                        liquidation_per_share, debug=True, recession=False, dict_values_for_bi=None):
 
     final_growth = riskfree
 
@@ -1310,6 +1310,8 @@ def dividends_valuation(earnings_type, growth_type, cagr, growth_eps_5y, growth_
         stock_value = stock_value_price_curr * fx_rate
     else:
         stock_value = stock_value_price_curr
+
+    stock_value = stock_value * survival_prob + liquidation_per_share * (1 - survival_prob)
 
     if dict_values_for_bi is not None:
         dict_values_for_bi[f"{earnings_type} + {growth_type} + recession:{recession}"] = {
@@ -1497,7 +1499,7 @@ def fcff_valuation(earnings_type, growth_type, cagr, riskfree, ttm_revenue, ttm_
             "reinvestment": reinvestment_history,
             "FCFF": fcff_history,
             "cost_of_capital": cost_of_capital_history,
-            "pv_of_FCFF": present_value_history + [terminal_value_pv]
+            "pv_of_FCFF": present_value_history[:-1] + [terminal_value_pv]
         })
 
     if debug:
