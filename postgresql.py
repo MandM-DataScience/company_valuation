@@ -14,11 +14,11 @@ import numpy as np
 area_to_repr_country = {
     "Africa": "SouthAfrica",
     "Asia": "China",
-    "Australia&NewZealand": "Australia",
+    "Australia & New Zealand": "Australia",
     "Caribbean": "Cuba",
-    "CentralandSouthAmerica": "Mexico",
-    "EasternEurope&Russia": "Russia",
-    "MiddleEast": "Saudi Arabia",
+    "Central and South America": "Mexico",
+    "Eastern Europe & Russia": "Russia",
+    "Middle East": "Saudi Arabia",
     "North America": "United States",
     "Western Europe": "Germany",
     "Global": "Russia"
