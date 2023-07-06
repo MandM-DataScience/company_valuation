@@ -15,7 +15,7 @@ We structured the project as a Data Science showcase, in which we explain the va
 containing both the code and the thought process.
 
 ### Start here:
-[USA Company Valuation w/ ChatGPT](notebooks/company_valuation_chatgpt.ipynb)
+[USA Company Valuation w/ ChatGPT](notebooks/USA%20Company%20Valuation%20with%20ChatGPT.ipynb)
 
 ### What we did:
 1. Data Collection
