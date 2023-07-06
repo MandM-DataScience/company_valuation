@@ -644,30 +644,34 @@ def parse_document(doc):
 
 
 def find_auditor(doc):
+    try:
+        soup = BeautifulSoup(doc["html"], features="html.parser")
 
-    soup = BeautifulSoup(doc["html"], features="html.parser")
+        # auditor_start_string = 'Report of Independent Registered Public Accounting Firm'.lower()
 
-    # auditor_start_string = 'Report of Independent Registered Public Accounting Firm'.lower()
+        # auditor_string = ""
+        body = unidecode(soup.body.get_text(separator=" "))
+        body = re.sub('\n', ' ', body)
+        body = re.sub(' +', ' ', body)
 
-    # auditor_string = ""
-    body = unidecode(soup.body.get_text(separator=" "))
-    body = re.sub('\n', ' ', body)
-    body = re.sub(' +', ' ', body)
+        start_sig = 0
+        while start_sig != -1:
+            start_sig = body.find('s/', start_sig+1)
+            auditor_candidate = body[start_sig: start_sig+200]
 
-    start_sig = 0
-    while start_sig != -1:
-        start_sig = body.find('s/', start_sig+1)
-        auditor_candidate = body[start_sig: start_sig+200]
+            # print(auditor_candidate)
+            if 'auditor since' in auditor_candidate.lower():
+                pattern = r"s/.+auditor since.*?\d{4}"
 
-        # print(auditor_candidate)
-        if 'auditor since' in auditor_candidate.lower():
-            pattern = r"s/.+auditor since.*?\d{4}"
-
-            try:
-                match = re.findall(pattern, auditor_candidate)[0]
-                return match.replace("s/", "").strip()
-            except:
-                pass
+                try:
+                    match = re.findall(pattern, auditor_candidate)[0]
+                    return match.replace("s/", "").strip()
+                except:
+                    pass
+    except Exception as e:
+        print(e)
+        print("NO AUDITOR FOUND")
+        return ""
 
     # print(auditor_string)
 
